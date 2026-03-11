@@ -1,0 +1,25 @@
+---
+# yamllint configuration for rpm-git-repo
+#
+# Non-default rules explained:
+# - document-start: disabled — upstream GitHub Actions workflows omit "---"
+# - truthy: disabled — upstream workflows use bare "on:" triggers which
+#   yamllint flags as truthy values (should be "true"/"false")
+# - indentation: relaxed to allow 2-space indent with flexible block sequences
+#   and account for upstream workflow files that use non-standard indentation
+# - line-length: disabled — upstream files have long lines
+# - comments-indentation: disabled — upstream files have varied comment styles
+
+ignore:
+  - tests/fixtures/
+
+extends: default
+
+rules:
+  document-start: disable
+  truthy: disable
+  line-length: disable
+  comments-indentation: disable
+  indentation:
+    spaces: 2
+    indent-sequences: whatever

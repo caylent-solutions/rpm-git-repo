@@ -1,0 +1,105 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rpm-git-repo"
+version = "0.1.0"
+description = "RPM Git Repo — multi-repository management tool for Git"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+  { name = "RPM Contributors" }
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14"
+]
+dependencies = [
+    "packaging>=23.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/caylent-solutions/rpm-git-repo"
+Issues = "https://github.com/caylent-solutions/rpm-git-repo/issues"
+
+[tool.hatch.build.targets.wheel]
+# Flat layout: include all root .py files + subcmds/ package
+# Do NOT use both packages and force-include for same files (causes duplicate ZIP entries)
+packages = ["."]
+# Only include Python source files, not tests/docs/config
+only-include = [
+    "color.py", "command.py", "editor.py", "error.py", "event_log.py",
+    "fetch.py", "git_command.py", "git_config.py", "git_refs.py",
+    "git_superproject.py", "git_trace2_event_log.py", "git_trace2_event_log_base.py",
+    "hooks.py", "main.py", "manifest_xml.py", "pager.py",
+    "platform_utils.py", "platform_utils_win32.py", "progress.py",
+    "project.py", "repo_logging.py", "repo_trace.py",
+    "ssh.py", "version_constraints.py", "wrapper.py",
+    "subcmds/"
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 80
+extend-exclude = ["tests/fixtures", ".devcontainer"]
+
+[tool.ruff.lint]
+select = ["F", "E"]
+ignore = ["E731", "E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests -- fast, isolated, no external dependencies",
+    "functional: Functional tests -- exercise CLI via subprocess",
+]
+addopts = "--ignore=tests/test_harness_smoke.py"
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "tests/*",
+    "setup.py",
+    "repo",
+    "platform_utils_win32.py",
+]
+data_file = ".coverage-data/.coverage"
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.semantic_release]
+version_variable = "main.py:__version__"
+version_toml = ["pyproject.toml:project.version"]
+build_command = "python -m build"
+tag_format = "{version}"
+major_on_zero = true
+branch = "main"
+upload_to_pypi = false
+upload_to_release = false
+commit_version_number = true
+
+[tool.semantic_release.changelog]
+changelog_file = "CHANGELOG.md"
+changelog_scope = false
+exclude_commit_patterns = []
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = [
+  "build", "chore", "ci", "docs", "feat", "fix",
+  "perf", "refactor", "revert", "security", "style", "test"
+]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "security", "revert"]
