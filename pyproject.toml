@@ -45,7 +45,8 @@ only-include = [
     "platform_utils.py", "platform_utils_win32.py", "progress.py",
     "project.py", "repo", "repo_logging.py", "repo_trace.py", "requirements.json",
     "ssh.py", "version_constraints.py", "wrapper.py",
-    "subcmds/"
+    "subcmds/",
+    "hooks/"
 ]
 
 [tool.ruff]
