@@ -363,7 +363,10 @@ to update the working directory files.
             remote.Save()
 
         # Handle new --repo-rev requests.
-        if opt.repo_rev:
+        # When installed via pipx, .repo/repo does not exist as a git
+        # directory — the correct version is already running. Skip the
+        # git-based self-update in that case.
+        if opt.repo_rev and os.path.isdir(rp.worktree):
             try:
                 remote_ref, rev = wrapper.check_repo_rev(
                     rp.worktree,
