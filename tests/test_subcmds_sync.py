@@ -539,6 +539,9 @@ class SyncUpdateRepoProject(unittest.TestCase):
         repoProject.Sync_NetworkHalf = mock.Mock(
             return_value=SyncNetworkHalfResult(True, None)
         )
+        # Set worktree to the real temp dir so the pipx-install guard
+        # (os.path.isdir check) does not short-circuit these tests.
+        repoProject.worktree = self.repodir
         manifest.repoProject = repoProject
         manifest.IsArchive = False
         manifest.CloneFilter = None
@@ -600,6 +603,19 @@ class SyncUpdateRepoProject(unittest.TestCase):
             self.cmd._UpdateRepoProject(self.opt, self.manifest, self.errors)
             self.manifest.repoProject.Sync_NetworkHalf.assert_not_called()
             mock_post_fetch.assert_not_called()
+
+    def test_skips_when_repo_worktree_absent(self):
+        """Test it skips fetch when .repo/repo does not exist (pipx install)."""
+        self.manifest.repoProject.LastFetch = time.time() - (
+            sync._ONE_DAY_S + 1
+        )
+        self.manifest.repoProject.worktree = "/nonexistent/path/.repo/repo"
+
+        with mock.patch.object(sync, "_PostRepoFetch") as mock_post_fetch:
+            self.cmd._UpdateRepoProject(self.opt, self.manifest, self.errors)
+            self.manifest.repoProject.Sync_NetworkHalf.assert_not_called()
+            mock_post_fetch.assert_not_called()
+            self.assertEqual(self.errors, [])
 
     def test_post_repo_fetch_skipped_on_env_var(self):
         """Test _PostRepoFetch is skipped when REPO_SKIP_SELF_UPDATE is set."""

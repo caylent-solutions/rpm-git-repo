@@ -1367,6 +1367,12 @@ later is required to fix a server side protocol bug.
             return
 
         rp = manifest.repoProject
+        # When installed via pipx, .repo/repo does not exist as a git
+        # directory — the correct version is already running. Skip the
+        # git-based self-update in that case.
+        if not os.path.isdir(rp.worktree):
+            return
+
         now = time.time()
         # If we've fetched in the last day, don't bother fetching again.
         if (now - rp.LastFetch) < _ONE_DAY_S:
