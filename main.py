@@ -867,9 +867,34 @@ def _Main(argv):
     sys.exit(result)
 
 
+def _FindRepoDir():
+    """Walk up from cwd to find the .repo directory, or return cwd/.repo."""
+    curdir = os.getcwd()
+    olddir = None
+    while curdir != olddir:
+        candidate = os.path.join(curdir, ".repo")
+        if os.path.isdir(candidate):
+            return candidate
+        olddir = curdir
+        curdir = os.path.dirname(curdir)
+    return os.path.join(os.getcwd(), ".repo")
+
+
 def main():
-    """Entry point for pipx/pip installation."""
-    _Main(sys.argv[1:])
+    """Entry point for pipx/pip installation.
+
+    Injects --repo-dir and --wrapper-version so _Main behaves the same
+    as when invoked via the repo launcher script.
+    """
+    wrapper_version = ".".join(str(x) for x in Wrapper().VERSION)
+    repo_dir = _FindRepoDir()
+    argv = [
+        f"--repo-dir={repo_dir}",
+        f"--wrapper-version={wrapper_version}",
+        f"--wrapper-path={__file__}",
+        "--",
+    ] + sys.argv[1:]
+    _Main(argv)
 
 
 if __name__ == "__main__":

@@ -580,9 +580,25 @@ class TestMainEntryPoint:
         """main() must exist and be callable so pipx can install it."""
         assert callable(main.main)
 
-    def test_main_delegates_to_Main(self):
-        """main() must delegate to _Main with sys.argv[1:]."""
+    def test_main_injects_required_args(self):
+        """main() must inject --repo-dir, --wrapper-version, and --wrapper-path."""
         with mock.patch("main._Main") as mock_Main:
-            with mock.patch("sys.argv", ["repo", "version"]):
-                main.main()
-        mock_Main.assert_called_once_with(["version"])
+            with mock.patch("main._FindRepoDir", return_value="/fake/.repo"):
+                with mock.patch("sys.argv", ["repo", "version"]):
+                    main.main()
+        args = mock_Main.call_args[0][0]
+        assert any(a.startswith("--repo-dir=") for a in args)
+        assert any(a.startswith("--wrapper-version=") for a in args)
+        assert any(a.startswith("--wrapper-path=") for a in args)
+        assert "--" in args
+        assert "version" in args
+
+    def test_main_appends_user_args(self):
+        """main() must pass user argv after the injected sentinel --."""
+        with mock.patch("main._Main") as mock_Main:
+            with mock.patch("main._FindRepoDir", return_value="/fake/.repo"):
+                with mock.patch("sys.argv", ["repo", "init", "-u", "http://x"]):
+                    main.main()
+        args = mock_Main.call_args[0][0]
+        sep = args.index("--")
+        assert args[sep + 1 :] == ["init", "-u", "http://x"]
