@@ -43,7 +43,7 @@ only-include = [
     "git_superproject.py", "git_trace2_event_log.py", "git_trace2_event_log_base.py",
     "hooks.py", "main.py", "manifest_xml.py", "pager.py",
     "platform_utils.py", "platform_utils_win32.py", "progress.py",
-    "project.py", "repo", "repo_logging.py", "repo_trace.py",
+    "project.py", "repo", "repo_logging.py", "repo_trace.py", "requirements.json",
     "ssh.py", "version_constraints.py", "wrapper.py",
     "subcmds/"
 ]
