@@ -867,5 +867,10 @@ def _Main(argv):
     sys.exit(result)
 
 
+def main():
+    """Entry point for pipx/pip installation."""
+    _Main(sys.argv[1:])
+
+
 if __name__ == "__main__":
     _Main(sys.argv[1:])

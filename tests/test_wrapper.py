@@ -23,6 +23,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import pytest
+
 import git_command
 import main
 import wrapper
@@ -568,3 +570,19 @@ class CheckRepoRev(GitCheckoutTestCase):
             )
         self.assertEqual("refs/heads/stable", rrev)
         self.assertEqual(self.REV_LIST[1], lrev)
+
+
+@pytest.mark.unit
+class TestMainEntryPoint:
+    """Verify the pipx/pip console_scripts entry point."""
+
+    def test_main_is_callable(self):
+        """main() must exist and be callable so pipx can install it."""
+        assert callable(main.main)
+
+    def test_main_delegates_to_Main(self):
+        """main() must delegate to _Main with sys.argv[1:]."""
+        with mock.patch("main._Main") as mock_Main:
+            with mock.patch("sys.argv", ["repo", "version"]):
+                main.main()
+        mock_Main.assert_called_once_with(["version"])

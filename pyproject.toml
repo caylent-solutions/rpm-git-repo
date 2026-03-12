@@ -25,6 +25,9 @@ dependencies = [
     "packaging>=23.0",
 ]
 
+[project.scripts]
+repo = "main:main"
+
 [project.urls]
 Homepage = "https://github.com/caylent-solutions/rpm-git-repo"
 Issues = "https://github.com/caylent-solutions/rpm-git-repo/issues"
