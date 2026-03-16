@@ -2215,12 +2215,13 @@ https://gerrit.googlesource.com/git-repo/+/HEAD/docs/manifest-format.md
     def _ParseLinkFile(self, project, node):
         src = self._reqatt(node, "src")
         dest = self._reqatt(node, "dest")
+        exclude = node.getAttribute("exclude") or None
         if not self.IsMirror:
             # src is project relative;
             # dest is relative to the top of the tree.
             # We only validate paths if we actually plan to process them.
             self._ValidateFilePaths("linkfile", src, dest)
-            project.AddLinkFile(src, dest, self.topdir)
+            project.AddLinkFile(src, dest, self.topdir, exclude=exclude)
 
     def _ParseAnnotation(self, element, node):
         name = self._reqatt(node, "name")

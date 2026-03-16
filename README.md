@@ -159,6 +159,23 @@ The `<linkfile>` element supports absolute paths for the `dest` attribute, enabl
 
 Parent directories are created automatically for absolute paths. Path traversal (`..` components) is rejected for security.
 
+### Linkfile Exclude Attribute
+
+When the optional `exclude` attribute is present and `src` is a directory, `<linkfile>` creates `dest` as a real directory and individually symlinks each non-excluded immediate child of `src` into `dest`, instead of creating a single directory symlink.
+
+The `exclude` value is a comma-separated list of immediate child names to omit (exact match, no globs). Using `exclude` with a file source or glob pattern raises an error.
+
+```xml
+<project name="shared-tools" path="tools">
+  <!-- Link directory contents, excluding tests and docs -->
+  <linkfile src="cli-agent"
+            dest="marketplace/cli-agent"
+            exclude="tests,docs,__pycache__"/>
+</project>
+```
+
+Repo-internal entries (`.git`, `.repo*`, `.packages`) are always auto-excluded when `exclude` is active.
+
 ## Common Commands
 
 | Command | Description |

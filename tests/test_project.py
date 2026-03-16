@@ -592,6 +592,161 @@ class LinkFileAbsoluteDestTests(CopyLinkTestCase):
         )
 
 
+@pytest.mark.unit
+class LinkFileExcludeTests(CopyLinkTestCase):
+    """Tests for the exclude attribute on <linkfile>."""
+
+    def LinkFile(self, src, dest, exclude=None):
+        return project._LinkFile(
+            self.worktree, src, self.topdir, dest, exclude=exclude
+        )
+
+    def _make_src_dir(self, name, children):
+        """Create a source directory with the given children (files)."""
+        src_dir = os.path.join(self.worktree, name)
+        os.makedirs(src_dir, exist_ok=True)
+        for child in children:
+            child_path = os.path.join(src_dir, child)
+            if os.path.basename(child) == child:
+                self.touch(child_path)
+            else:
+                os.makedirs(os.path.dirname(child_path), exist_ok=True)
+                self.touch(child_path)
+        return src_dir
+
+    def test_exclude_creates_real_directory(self):
+        self._make_src_dir("pkg", ["a.py", "b.py"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="b.py")
+        lf._Link()
+        self.assertTrue(os.path.isdir(dest))
+        self.assertFalse(os.path.islink(dest))
+
+    def test_exclude_links_non_excluded_children(self):
+        self._make_src_dir("pkg", ["a.py", "b.py", "c.py"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="b.py")
+        lf._Link()
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+        self.assertTrue(os.path.islink(os.path.join(dest, "c.py")))
+
+    def test_exclude_skips_excluded_children(self):
+        self._make_src_dir("pkg", ["a.py", "tests"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="tests")
+        lf._Link()
+        self.assertFalse(os.path.exists(os.path.join(dest, "tests")))
+
+    def test_exclude_multiple_comma_separated(self):
+        self._make_src_dir("pkg", ["a.py", "tests", "docs", "__pycache__"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="tests,docs,__pycache__")
+        lf._Link()
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "tests")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "docs")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "__pycache__")))
+
+    def test_exclude_with_whitespace_in_csv(self):
+        self._make_src_dir("pkg", ["a.py", "tests", "docs"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude=" tests , docs ")
+        lf._Link()
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "tests")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "docs")))
+
+    def test_exclude_on_file_src_raises_error(self):
+        src = os.path.join(self.worktree, "file.txt")
+        self.touch(src)
+        dest = os.path.join(self.topdir, "linked-file")
+        lf = self.LinkFile("file.txt", dest, exclude="something")
+        from error import ManifestInvalidPathError
+
+        with self.assertRaises(ManifestInvalidPathError):
+            lf._Link()
+
+    def test_exclude_empty_string_behaves_as_no_exclude(self):
+        self._make_src_dir("pkg", ["a.py", "b.py"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="")
+        lf._Link()
+        # Empty exclude -> single symlink to directory
+        self.assertTrue(os.path.islink(dest))
+
+    def test_exclude_with_absolute_dest(self):
+        self._make_src_dir("pkg", ["a.py", "tests"])
+        abs_dest = os.path.join(self.tempdir, "abs-out", "linked-pkg")
+        lf = self.LinkFile("pkg", abs_dest, exclude="tests")
+        lf._Link()
+        self.assertTrue(os.path.isdir(abs_dest))
+        self.assertFalse(os.path.islink(abs_dest))
+        self.assertTrue(os.path.islink(os.path.join(abs_dest, "a.py")))
+        self.assertFalse(os.path.exists(os.path.join(abs_dest, "tests")))
+
+    def test_exclude_nonexistent_entry_no_error(self):
+        self._make_src_dir("pkg", ["a.py"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="nonexistent")
+        lf._Link()
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+
+    def test_no_exclude_preserves_directory_symlink(self):
+        self._make_src_dir("pkg", ["a.py", "b.py"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest)
+        lf._Link()
+        self.assertTrue(os.path.islink(dest))
+
+    def test_exclude_with_glob_src_raises_error(self):
+        self._make_src_dir("pkg", ["a.py"])
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pk*", dest, exclude="something")
+        from error import ManifestInvalidPathError
+
+        with self.assertRaises(ManifestInvalidPathError):
+            lf._Link()
+
+    def test_exclude_auto_skips_dot_git(self):
+        src_dir = self._make_src_dir("pkg", ["a.py"])
+        os.makedirs(os.path.join(src_dir, ".git"))
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="something")
+        lf._Link()
+        self.assertFalse(os.path.exists(os.path.join(dest, ".git")))
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+
+    def test_exclude_auto_skips_dot_repo(self):
+        src_dir = self._make_src_dir("pkg", ["a.py"])
+        os.makedirs(os.path.join(src_dir, ".repo"))
+        os.makedirs(os.path.join(src_dir, ".repoconfig"))
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="something")
+        lf._Link()
+        self.assertFalse(os.path.exists(os.path.join(dest, ".repo")))
+        self.assertFalse(os.path.exists(os.path.join(dest, ".repoconfig")))
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+
+    def test_exclude_auto_skips_dot_packages(self):
+        src_dir = self._make_src_dir("pkg", ["a.py"])
+        os.makedirs(os.path.join(src_dir, ".packages"))
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="something")
+        lf._Link()
+        self.assertFalse(os.path.exists(os.path.join(dest, ".packages")))
+        self.assertTrue(os.path.islink(os.path.join(dest, "a.py")))
+
+    def test_exclude_links_other_hidden_files(self):
+        src_dir = self._make_src_dir("pkg", ["a.py"])
+        self.touch(os.path.join(src_dir, ".config"))
+        self.touch(os.path.join(src_dir, ".env"))
+        dest = os.path.join(self.topdir, "linked-pkg")
+        lf = self.LinkFile("pkg", dest, exclude="something")
+        lf._Link()
+        self.assertTrue(os.path.islink(os.path.join(dest, ".config")))
+        self.assertTrue(os.path.islink(os.path.join(dest, ".env")))
+
+
 _FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
