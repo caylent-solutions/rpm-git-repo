@@ -97,6 +97,7 @@ following DTD:
   <!ELEMENT linkfile EMPTY>
   <!ATTLIST linkfile src CDATA #REQUIRED>
   <!ATTLIST linkfile dest CDATA #REQUIRED>
+  <!ATTLIST linkfile exclude CDATA #IMPLIED>
 
   <!ELEMENT extend-project EMPTY>
   <!ATTLIST extend-project name CDATA #REQUIRED>
@@ -481,6 +482,37 @@ to the repo client tree.
 
 Note: `copyfile` dest remains relative-only.  Absolute dest paths are
 supported exclusively by `linkfile`.
+
+#### Exclude attribute
+
+When the optional `exclude` attribute is present and `src` is a directory,
+`linkfile` creates `dest` as a real directory and individually symlinks each
+non-excluded immediate child of `src` into `dest`, rather than creating a
+single symlink pointing to the entire source directory.
+
+The `exclude` value is a comma-separated list of immediate child names to
+omit.  Matching is exact (no glob or regex patterns) and applies only to
+direct children of `src` (not recursive).  The `src` must be a directory
+when `exclude` is set; using `exclude` with a file source raises an error.
+Combining `exclude` with glob patterns in `src` is also an error.
+
+Example:
+
+    <linkfile src="common/example/cli-agent"
+              dest="${CLAUDE_MARKETPLACES_DIR}/rpm-claude-example"
+              exclude="tests,docs,__pycache__" />
+
+**Auto-skipped entries:** When `exclude` is present, the following
+repo-internal entries are always excluded automatically, regardless of
+whether they appear in the `exclude` value:
+
+| Entry | Behavior | Reason |
+|---|---|---|
+| `.git` | Always skipped | Git internal directory |
+| `.repo`, `.repo*` | Always skipped | Repo tool internal directories |
+| `.packages` | Always skipped | RPM package sync directory |
+| `.config`, `.env`, etc. | Symlinked normally | May be legitimate plugin content |
+| User-specified excludes | Skipped | Controlled by `exclude` attribute |
 
 ### Element remove-project
 

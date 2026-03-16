@@ -439,10 +439,15 @@ class _CopyFile:
                 logger.error("Cannot copy file %s to %s", src, dest)
 
 
+# Entries that must never be symlinked when using exclude-based linking.
+_LINKFILE_EXCLUDE_ALWAYS = frozenset({".git", ".packages"})
+_LINKFILE_EXCLUDE_PREFIXES = (".repo",)
+
+
 class _LinkFile:
     """Container for <linkfile> manifest element."""
 
-    def __init__(self, git_worktree, src, topdir, dest):
+    def __init__(self, git_worktree, src, topdir, dest, exclude=None):
         """Register a <linkfile> request.
 
         Args:
@@ -450,11 +455,19 @@ class _LinkFile:
             src: Target of symlink relative to path under |git_worktree|.
             topdir: Absolute path to the top of the repo client checkout.
             dest: Relative path under |topdir| of symlink to create.
+            exclude: Optional comma-separated string of immediate child names
+                to omit when linking a directory source.
         """
         self.git_worktree = git_worktree
         self.topdir = topdir
         self.src = src
         self.dest = dest
+        if exclude:
+            self.exclude = frozenset(
+                name for name in (n.strip() for n in exclude.split(",")) if name
+            )
+        else:
+            self.exclude = frozenset()
 
     def __linkIt(self, relSrc, absDest):
         # Link file if it does not exist or is out of date.
@@ -474,6 +487,26 @@ class _LinkFile:
                 logger.error(
                     "error: Cannot link file %s to %s", relSrc, absDest
                 )
+
+    def _LinkWithExclude(self, absSrc, absDest):
+        """Create per-child symlinks, skipping excluded and repo-internal entries.
+
+        Args:
+            absSrc: Resolved absolute path to the source directory.
+            absDest: Resolved absolute path to the destination directory.
+        """
+        os.makedirs(absDest, exist_ok=True)
+        for child in os.listdir(absSrc):
+            if child in _LINKFILE_EXCLUDE_ALWAYS:
+                continue
+            if any(child.startswith(p) for p in _LINKFILE_EXCLUDE_PREFIXES):
+                continue
+            if child in self.exclude:
+                continue
+            child_src = os.path.join(absSrc, child)
+            child_dest = os.path.join(absDest, child)
+            relpath = os.path.relpath(child_src, absDest)
+            self.__linkIt(relpath, child_dest)
 
     def _Link(self):
         """Link the self.src & self.dest paths.
@@ -507,12 +540,25 @@ class _LinkFile:
             else:
                 # Relative dest: resolve under topdir via _SafeExpandPath.
                 dest = _SafeExpandPath(self.topdir, self.dest, skipfinal=True)
-            # dest & src are absolute paths at this point.  Make sure the target
-            # of the symlink is relative in the context of the repo client
-            # checkout.
-            relpath = os.path.relpath(src, os.path.dirname(dest))
-            self.__linkIt(relpath, dest)
+            # dest & src are absolute paths at this point.
+            if self.exclude:
+                if not os.path.isdir(src):
+                    raise ManifestInvalidPathError(
+                        "exclude attribute requires src to be a"
+                        f" directory: {self.src}"
+                    )
+                self._LinkWithExclude(src, dest)
+            else:
+                # Make sure the target of the symlink is relative in the
+                # context of the repo client checkout.
+                relpath = os.path.relpath(src, os.path.dirname(dest))
+                self.__linkIt(relpath, dest)
         else:
+            if self.exclude:
+                raise ManifestInvalidPathError(
+                    "exclude attribute cannot be combined with"
+                    f" glob patterns in src: {self.src}"
+                )
             dest = _SafeExpandPath(self.topdir, self.dest)
             # Entity contains a wild card.
             if os.path.exists(dest) and not platform_utils.isdir(dest):
@@ -1832,7 +1878,7 @@ class Project:
         """
         self.copyfiles.append(_CopyFile(self.worktree, src, topdir, dest))
 
-    def AddLinkFile(self, src, dest, topdir):
+    def AddLinkFile(self, src, dest, topdir, exclude=None):
         """Mark |dest| to create a symlink (relative to |topdir|) pointing to
         |src|.
 
@@ -1841,7 +1887,9 @@ class Project:
         Paths should have basic validation run on them before being queued.
         Further checking will be handled when the actual link happens.
         """
-        self.linkfiles.append(_LinkFile(self.worktree, src, topdir, dest))
+        self.linkfiles.append(
+            _LinkFile(self.worktree, src, topdir, dest, exclude=exclude)
+        )
 
     def AddAnnotation(self, name, value, keep):
         self.annotations.append(Annotation(name, value, keep))

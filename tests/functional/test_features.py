@@ -234,3 +234,64 @@ class TestVersionOutput:
 
         assert hasattr(main, "__version__")
         assert main.__version__ == "0.1.0"
+
+
+@pytest.mark.functional
+class TestLinkFileExclude:
+    """Functional tests for the linkfile exclude attribute."""
+
+    def test_linkfile_exclude_creates_individual_symlinks(self, tmp_path):
+        """End-to-end: exclude creates real dir with per-child symlinks."""
+        import project
+
+        worktree = tmp_path / "worktree"
+        topdir = tmp_path / "checkout"
+        worktree.mkdir()
+        topdir.mkdir()
+
+        # Create source directory with children.
+        src_dir = worktree / "plugin"
+        src_dir.mkdir()
+        (src_dir / "main.py").write_text("# main")
+        (src_dir / "utils.py").write_text("# utils")
+        (src_dir / "tests").mkdir()
+        (src_dir / "tests" / "test_main.py").write_text("# test")
+
+        dest = str(topdir / "linked-plugin")
+        lf = project._LinkFile(
+            str(worktree), "plugin", str(topdir), dest, exclude="tests"
+        )
+        lf._Link()
+
+        dest_path = topdir / "linked-plugin"
+        assert dest_path.is_dir()
+        assert not dest_path.is_symlink()
+        assert (dest_path / "main.py").is_symlink()
+        assert (dest_path / "utils.py").is_symlink()
+        assert not (dest_path / "tests").exists()
+
+    def test_linkfile_exclude_with_absolute_dest(self, tmp_path):
+        """End-to-end: exclude works with absolute dest path (spec 17.1)."""
+        import project
+
+        worktree = tmp_path / "worktree"
+        topdir = tmp_path / "checkout"
+        worktree.mkdir()
+        topdir.mkdir()
+
+        src_dir = worktree / "plugin"
+        src_dir.mkdir()
+        (src_dir / "main.py").write_text("# main")
+        (src_dir / "docs").mkdir()
+
+        abs_dest = str(tmp_path / "external" / "linked-plugin")
+        lf = project._LinkFile(
+            str(worktree), "plugin", str(topdir), abs_dest, exclude="docs"
+        )
+        lf._Link()
+
+        dest_path = tmp_path / "external" / "linked-plugin"
+        assert dest_path.is_dir()
+        assert not dest_path.is_symlink()
+        assert (dest_path / "main.py").is_symlink()
+        assert not (dest_path / "docs").exists()
