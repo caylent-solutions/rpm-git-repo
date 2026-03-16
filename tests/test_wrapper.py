@@ -602,3 +602,63 @@ class TestMainEntryPoint:
         args = mock_Main.call_args[0][0]
         sep = args.index("--")
         assert args[sep + 1 :] == ["init", "-u", "http://x"]
+
+
+@pytest.mark.unit
+class WrapperDirTests(unittest.TestCase):
+    """Tests for WrapperDir function."""
+
+    def test_wrapper_dir_returns_dirname(self):
+        """WrapperDir should return directory of wrapper module."""
+        result = wrapper.WrapperDir()
+        self.assertIsInstance(result, str)
+        self.assertTrue(os.path.isdir(result))
+
+
+@pytest.mark.unit
+class WrapperPathTests(unittest.TestCase):
+    """Tests for WrapperPath function."""
+
+    def test_wrapper_path_returns_repo_path(self):
+        """WrapperPath should return path to repo wrapper."""
+        result = wrapper.WrapperPath()
+        self.assertIsInstance(result, str)
+        self.assertTrue(result.endswith("repo"))
+
+
+@pytest.mark.unit
+class WrapperTests(unittest.TestCase):
+    """Tests for Wrapper function."""
+
+    def test_wrapper_returns_module(self):
+        """Wrapper should return a module."""
+        wrapper.Wrapper.cache_clear()
+        result = wrapper.Wrapper()
+        self.assertIsNotNone(result)
+
+    def test_wrapper_caches_result(self):
+        """Wrapper should cache the loaded module."""
+        wrapper.Wrapper.cache_clear()
+        result1 = wrapper.Wrapper()
+        result2 = wrapper.Wrapper()
+        self.assertIs(result1, result2)
+
+    def test_wrapper_loads_from_wrapper_path(self):
+        """Wrapper should load module from WrapperPath."""
+        wrapper.Wrapper.cache_clear()
+        with mock.patch("wrapper.WrapperPath", return_value="/fake/repo"):
+            with mock.patch(
+                "importlib.machinery.SourceFileLoader"
+            ) as mock_loader:
+                mock_spec = mock.Mock()
+                mock_module = mock.Mock()
+                mock_loader.return_value.exec_module.return_value = None
+                with mock.patch(
+                    "importlib.util.spec_from_loader", return_value=mock_spec
+                ):
+                    with mock.patch(
+                        "importlib.util.module_from_spec",
+                        return_value=mock_module,
+                    ):
+                        result = wrapper.Wrapper()
+                        self.assertIs(result, mock_module)

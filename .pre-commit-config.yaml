@@ -5,6 +5,7 @@ repos:
       - id: trailing-whitespace
       - id: debug-statements
       - id: check-json
+        exclude: ^requirements\.json$
       - id: check-yaml
         args: [--unsafe]
       - id: check-added-large-files

@@ -287,3 +287,74 @@ class ExecuteTest(unittest.TestCase):
             self.gc.Execute(opt, [])
 
         mock_repack.assert_not_called()
+
+
+@pytest.mark.unit
+class TestGcOptions:
+    """Test Gc command options."""
+
+    def test_options_setup(self):
+        """Verify Gc command option parser is set up correctly."""
+        import optparse
+
+        cmd = gc.Gc()
+        p = optparse.OptionParser()
+        cmd._Options(p)
+        opts, args = p.parse_args([])
+
+        # Verify default option values
+        assert opts.dryrun is False
+        assert opts.yes is False
+        assert opts.repack is False
+
+    def test_options_dryrun(self):
+        """Test parsing --dry-run option."""
+        cmd = gc.Gc()
+        opts, args = cmd.OptionParser.parse_args(["--dry-run"])
+        assert opts.dryrun is True
+
+    def test_options_yes(self):
+        """Test parsing -y option."""
+        cmd = gc.Gc()
+        opts, args = cmd.OptionParser.parse_args(["-y"])
+        assert opts.yes is True
+
+    def test_options_repack(self):
+        """Test parsing --repack option."""
+        cmd = gc.Gc()
+        opts, args = cmd.OptionParser.parse_args(["--repack"])
+        assert opts.repack is True
+
+
+@pytest.mark.unit
+class TestGcRepackProjects:
+    """Test Gc repack_projects method."""
+
+    def test_repack_projects_empty_list(self):
+        """Test repack_projects with empty project list."""
+        gc_obj = _make_gc_instance()
+
+        opt = mock.MagicMock()
+        opt.quiet = False
+
+        result = gc_obj.repack_projects([], opt)
+        assert result == 0
+
+
+@pytest.mark.unit
+class TestGcCommand:
+    """Test Gc command properties."""
+
+    def test_common_flag(self):
+        """Test Gc command is marked as COMMON."""
+        assert gc.Gc.COMMON is True
+
+    def test_help_summary(self):
+        """Test Gc command has help summary."""
+        assert gc.Gc.helpSummary is not None
+        assert len(gc.Gc.helpSummary) > 0
+
+    def test_parallel_jobs(self):
+        """Test Gc command has parallel jobs set."""
+        # Gc doesn't set PARALLEL_JOBS, it's None
+        assert gc.Gc.PARALLEL_JOBS is None

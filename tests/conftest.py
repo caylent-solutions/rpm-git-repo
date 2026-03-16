@@ -21,8 +21,17 @@ import shutil
 
 import pytest
 
+import color
 import platform_utils
 import repo_trace
+
+
+@pytest.fixture(autouse=True)
+def reset_color_default():
+    """Prevent test pollution via color.DEFAULT global state."""
+    saved = color.DEFAULT
+    yield
+    color.DEFAULT = saved
 
 
 @pytest.fixture(autouse=True)

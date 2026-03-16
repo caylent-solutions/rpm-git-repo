@@ -346,3 +346,304 @@ class GitCommandErrorTest(unittest.TestCase):
             ).suggestion,
             "Are you running this repo command outside of a repo workspace?",
         )
+
+
+# Additional comprehensive tests below
+
+
+@pytest.mark.unit
+class TestGitCommandExtended(unittest.TestCase):
+    """Extended tests for GitCommand class."""
+
+    def setUp(self):
+        self.mock_process = mock.MagicMock()
+        self.mock_process.communicate.return_value = ("stdout", "stderr")
+        self.mock_process.wait.return_value = 0
+        self.mock_process.stdout = "stdout"
+        self.mock_process.stderr = "stderr"
+
+        self.mock_popen = mock.MagicMock()
+        self.mock_popen.return_value = self.mock_process
+        mock.patch("subprocess.Popen", self.mock_popen).start()
+        mock.patch.object(os.path, "realpath", side_effect=lambda x: x).start()
+
+        # Mock git version_tuple to avoid git command execution
+        mock_version = wrapper.Wrapper().GitVersion(2, 28, 0, 0)
+        mock.patch.object(
+            git_command.git, "version_tuple", return_value=mock_version
+        ).start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+
+@pytest.mark.unit
+class TestBuildEnv(unittest.TestCase):
+    """Tests for _build_env function."""
+
+    def test_build_env_basic(self):
+        """Test _build_env returns basic environment."""
+        env = git_command._build_env()
+        self.assertIn("GIT_HTTP_USER_AGENT", env)
+        self.assertIn("GIT_ALLOW_PROTOCOL", env)
+
+    def test_build_env_disable_editor(self):
+        """Test _build_env with disable_editor=True."""
+        env = git_command._build_env(disable_editor=True)
+        self.assertEqual(env["GIT_EDITOR"], ":")
+
+    def test_build_env_with_ssh_proxy(self):
+        """Test _build_env with ssh_proxy."""
+        ssh_proxy = mock.MagicMock()
+        ssh_proxy.sock.return_value = "/tmp/sock"
+        ssh_proxy.proxy = "/usr/bin/ssh"
+
+        env = git_command._build_env(ssh_proxy=ssh_proxy)
+        self.assertEqual(env["REPO_SSH_SOCK"], "/tmp/sock")
+        self.assertEqual(env["GIT_SSH"], "/usr/bin/ssh")
+        self.assertEqual(env["GIT_SSH_VARIANT"], "ssh")
+
+    def test_build_env_with_objdir(self):
+        """Test _build_env with objdir."""
+        env = git_command._build_env(objdir="/path/to/objects")
+        self.assertEqual(env["GIT_OBJECT_DIRECTORY"], "/path/to/objects")
+
+    def test_build_env_with_objdir_and_gitdir(self):
+        """Test _build_env with both objdir and gitdir."""
+        with mock.patch.object(os.path, "realpath", side_effect=lambda x: x):
+            env = git_command._build_env(
+                objdir="/path/to/objects", gitdir="/path/to/gitdir"
+            )
+        self.assertEqual(env["GIT_OBJECT_DIRECTORY"], "/path/to/objects")
+
+    def test_build_env_with_bare_and_gitdir(self):
+        """Test _build_env with bare=True and gitdir."""
+        env = git_command._build_env(bare=True, gitdir="/path/to/gitdir")
+        self.assertEqual(env["GIT_DIR"], "/path/to/gitdir")
+
+    def test_build_env_http_proxy_darwin(self):
+        """Test _build_env handles http_proxy on darwin."""
+        with mock.patch("sys.platform", "darwin"):
+            with mock.patch.dict(
+                os.environ, {"http_proxy": "http://proxy:8080"}
+            ):
+                env = git_command._build_env()
+                self.assertIn("GIT_CONFIG_PARAMETERS", env)
+
+
+@pytest.mark.unit
+class TestRepoSourceVersion(unittest.TestCase):
+    """Tests for RepoSourceVersion function."""
+
+    def test_RepoSourceVersion_returns_string(self):
+        """Test RepoSourceVersion() returns a string."""
+        version = git_command.RepoSourceVersion()
+        self.assertIsInstance(version, str)
+
+    def test_RepoSourceVersion_cached(self):
+        """Test RepoSourceVersion() is cached."""
+        version1 = git_command.RepoSourceVersion()
+        version2 = git_command.RepoSourceVersion()
+        self.assertEqual(version1, version2)
+
+
+@pytest.mark.unit
+class TestGitRequireExtended(unittest.TestCase):
+    """Extended tests for git_require function."""
+
+    def setUp(self):
+        self.wrapper = wrapper.Wrapper()
+        ver = self.wrapper.GitVersion(2, 28, 0, 0)
+        mock.patch.object(
+            git_command.git, "version_tuple", return_value=ver
+        ).start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+    def test_git_require_exact_match(self):
+        """Test git_require with exact version match."""
+        self.assertTrue(git_command.git_require((2, 28, 0)))
+
+    def test_git_require_newer_required(self):
+        """Test git_require with newer version required."""
+        self.assertFalse(git_command.git_require((3, 0, 0)))
+
+    def test_git_require_older_required(self):
+        """Test git_require with older version required."""
+        self.assertTrue(git_command.git_require((2, 27, 0)))
+
+    def test_git_require_with_message(self):
+        """Test git_require with custom message."""
+        with self.assertRaises(git_command.GitRequireError):
+            git_command.git_require((3, 0, 0), fail=True, msg="custom message")
+
+
+@pytest.mark.unit
+class TestUserAgentExtended(unittest.TestCase):
+    """Extended tests for UserAgent class."""
+
+    def test_user_agent_os_linux(self):
+        """Test UserAgent.os on Linux."""
+        with mock.patch("sys.platform", "linux"):
+            ua = git_command.UserAgent()
+            self.assertEqual(ua.os, "Linux")
+
+    def test_user_agent_os_win32(self):
+        """Test UserAgent.os on Windows."""
+        with mock.patch("sys.platform", "win32"):
+            ua = git_command.UserAgent()
+            self.assertEqual(ua.os, "Win32")
+
+    def test_user_agent_os_darwin(self):
+        """Test UserAgent.os on macOS."""
+        with mock.patch("sys.platform", "darwin"):
+            ua = git_command.UserAgent()
+            self.assertEqual(ua.os, "Darwin")
+
+    def test_user_agent_os_cygwin(self):
+        """Test UserAgent.os on Cygwin."""
+        with mock.patch("sys.platform", "cygwin"):
+            ua = git_command.UserAgent()
+            self.assertEqual(ua.os, "Cygwin")
+
+
+@pytest.mark.unit
+class TestGitCommandError(unittest.TestCase):
+    """Extended tests for GitCommandError class."""
+
+    def test_GitCommandError_with_project(self):
+        """Test GitCommandError with project."""
+        err = git_command.GitCommandError(
+            project="myproject", command_args=["status"], git_rc=1
+        )
+        self.assertIn("myproject", str(err))
+
+    def test_GitCommandError_with_stdout(self):
+        """Test GitCommandError with stdout."""
+        err = git_command.GitCommandError(
+            git_stdout="stdout content", command_args=["status"]
+        )
+        self.assertIn("stdout: stdout content", str(err))
+
+    def test_GitCommandError_with_stderr(self):
+        """Test GitCommandError with stderr."""
+        err = git_command.GitCommandError(
+            git_stderr="stderr content", command_args=["status"]
+        )
+        self.assertIn("stderr: stderr content", str(err))
+
+    def test_GitCommandError_suggestion_unable_to_access(self):
+        """Test GitCommandError suggestion for access errors."""
+        err = git_command.GitCommandError(
+            git_stderr="unable to access 'https://example.com': Connection refused"
+        )
+        self.assertIsNotNone(err.suggestion)
+        self.assertIn("access rights", err.suggestion)
+
+    def test_GitCommandError_suggestion_not_git_repository(self):
+        """Test GitCommandError suggestion for not a git repository."""
+        err = git_command.GitCommandError(git_stderr="not a git repository")
+        self.assertIsNotNone(err.suggestion)
+        self.assertIn("outside of a repo workspace", err.suggestion)
+
+    def test_GitCommandError_no_suggestion(self):
+        """Test GitCommandError with no matching suggestion."""
+        err = git_command.GitCommandError(git_stderr="some other error")
+        self.assertIsNone(err.suggestion)
+
+    def test_GitCommandError_custom_message(self):
+        """Test GitCommandError with custom message."""
+        err = git_command.GitCommandError(
+            message="custom error message", command_args=["status"]
+        )
+        self.assertIn("custom error message", str(err))
+
+    def test_GitCommandError_str_format(self):
+        """Test GitCommandError string format."""
+        err = git_command.GitCommandError(
+            project="myproject", command_args=["status", "--short"], git_rc=128
+        )
+        error_str = str(err)
+        self.assertIn("GitCommandError", error_str)
+        self.assertIn("status --short", error_str)
+        self.assertIn("myproject", error_str)
+
+
+@pytest.mark.unit
+class TestGitRequireError(unittest.TestCase):
+    """Tests for GitRequireError class."""
+
+    def test_GitRequireError_default_exit_code(self):
+        """Test GitRequireError has default exit code."""
+        err = git_command.GitRequireError("test message")
+        self.assertEqual(err.exit_code, git_command.INVALID_GIT_EXIT_CODE)
+
+    def test_GitRequireError_custom_exit_code(self):
+        """Test GitRequireError with custom exit code."""
+        err = git_command.GitRequireError("test message", exit_code=42)
+        self.assertEqual(err.exit_code, 42)
+
+    def test_GitRequireError_message(self):
+        """Test GitRequireError message."""
+        err = git_command.GitRequireError("custom error")
+        self.assertIn("custom error", str(err))
+
+
+@pytest.mark.unit
+class TestGetEventTargetPath(unittest.TestCase):
+    """Tests for GetEventTargetPath function."""
+
+    def test_GetEventTargetPath_returns_none_when_not_set(self):
+        """Test GetEventTargetPath returns None when config not set."""
+        with mock.patch("git_command.GitCommand") as mock_git_cmd:
+            mock_instance = mock.MagicMock()
+            mock_instance.Wait.return_value = 1
+            mock_git_cmd.return_value = mock_instance
+
+            # Clear cache
+            git_command.GetEventTargetPath.cache_clear()
+            result = git_command.GetEventTargetPath()
+            self.assertIsNone(result)
+
+    def test_GetEventTargetPath_returns_path_when_set(self):
+        """Test GetEventTargetPath returns path when config is set."""
+        with mock.patch("git_command.GitCommand") as mock_git_cmd:
+            mock_instance = mock.MagicMock()
+            mock_instance.Wait.return_value = 0
+            mock_instance.stdout = "/path/to/trace\n"
+            mock_git_cmd.return_value = mock_instance
+
+            # Clear cache
+            git_command.GetEventTargetPath.cache_clear()
+            result = git_command.GetEventTargetPath()
+            self.assertEqual(result, "/path/to/trace")
+
+
+@pytest.mark.unit
+class TestGitPopenCommandError(unittest.TestCase):
+    """Tests for GitPopenCommandError class."""
+
+    def test_GitPopenCommandError_creation(self):
+        """Test GitPopenCommandError can be created."""
+        err = git_command.GitPopenCommandError(
+            message="popen failed", project="myproject", command_args=["status"]
+        )
+        self.assertIn("popen failed", str(err))
+
+
+@pytest.mark.unit
+class TestGitCallExtended(unittest.TestCase):
+    """Extended tests for _GitCall class."""
+
+    def test_git_call_attribute_conversion(self):
+        """Test _GitCall converts underscores to dashes."""
+        with mock.patch("git_command.GitCommand") as mock_git_cmd:
+            mock_instance = mock.MagicMock()
+            mock_instance.Wait.return_value = 0
+            mock_git_cmd.return_value = mock_instance
+
+            git_command.git.symbolic_ref("HEAD")
+
+            call_args = mock_git_cmd.call_args[0]
+            self.assertEqual(call_args[1][0], "symbolic-ref")

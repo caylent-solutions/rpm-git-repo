@@ -11,15 +11,6 @@ WARNINGS=()
 # Source shared functions
 source "${WORK_DIR}/.devcontainer/devcontainer-functions.sh"
 
-# Ensure .tool-versions file exists with python entry
-if [ ! -f "${WORK_DIR}/.tool-versions" ]; then
-  log_info "Creating .tool-versions file with Python ${DEFAULT_PYTHON_VERSION}"
-  echo "python ${DEFAULT_PYTHON_VERSION}" > "${WORK_DIR}/.tool-versions"
-elif ! grep -q "^python " "${WORK_DIR}/.tool-versions"; then
-  log_info "Adding Python ${DEFAULT_PYTHON_VERSION} to .tool-versions"
-  echo "python ${DEFAULT_PYTHON_VERSION}" >> "${WORK_DIR}/.tool-versions"
-fi
-
 # Configure and log CICD environment
 CICD_VALUE="${CICD:-false}"
 if [ "$CICD_VALUE" = "true" ]; then
@@ -32,15 +23,22 @@ fi
 
 log_info "Starting post-create setup..."
 
+############################
+# Create Python Symlink    #
+############################
+if ! command -v python &> /dev/null; then
+  log_info "Creating python symlink to python3"
+  sudo ln -sf /usr/bin/python3 /usr/bin/python
+fi
+
+# Add Python tools to PATH for script execution
+export PATH="/usr/local/py-utils/bin:/usr/local/python/current/bin:$HOME/.local/bin:$PATH"
+
 #########################
 # Require Critical Envs #
 #########################
 if [ -z "${DEFAULT_GIT_BRANCH:-}" ]; then
   exit_with_error "❌ DEFAULT_GIT_BRANCH is not set in the environment"
-fi
-
-if [ -z "${DEFAULT_PYTHON_VERSION:-}" ]; then
-  exit_with_error "❌ DEFAULT_PYTHON_VERSION is not set in the environment"
 fi
 
 if [ "$CICD_VALUE" != "true" ]; then
@@ -82,28 +80,32 @@ fi
 echo "# Source project shell.env" >> "${BASH_RC}"
 echo "source \"${WORK_DIR}/shell.env\"" >> "${BASH_RC}"
 echo "export BASH_ENV=\"${WORK_DIR}/shell.env\"" >> "${BASH_RC}"
+echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "${BASH_RC}"
+echo "alias python=python3" >> "${BASH_RC}"
+echo "alias pip=pip3" >> "${BASH_RC}"
 
-# For zsh: source only in .zshenv (covers all zsh shells - interactive and non-interactive)
+# For zsh: source in .zshenv (covers all zsh shells - interactive and non-interactive)
 echo "source \"${WORK_DIR}/shell.env\"" > /home/${CONTAINER_USER}/.zshenv
+echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> /home/${CONTAINER_USER}/.zshenv
+echo "alias python=python3" >> /home/${CONTAINER_USER}/.zshenv
+echo "alias pip=pip3" >> /home/${CONTAINER_USER}/.zshenv
 
 ##############################
 # Install asdf & Tool Versions
 ##############################
 log_info "Installing asdf..."
 mkdir -p /home/${CONTAINER_USER}/.asdf
-git clone https://github.com/asdf-vm/asdf.git /home/${CONTAINER_USER}/.asdf --branch v0.15.0
+if ! git clone https://github.com/asdf-vm/asdf.git /home/${CONTAINER_USER}/.asdf --branch v0.15.0; then
+  exit_with_error "Failed to clone asdf repository — check network connectivity and proxy settings"
+fi
 
 # Source asdf for the current script
 export ASDF_DIR="/home/${CONTAINER_USER}/.asdf"
 export ASDF_DATA_DIR="/home/${CONTAINER_USER}/.asdf"
 . "/home/${CONTAINER_USER}/.asdf/asdf.sh"
 
-# Make asdf available system-wide for Amazon Q agents
-log_info "Configuring system-wide asdf access for Amazon Q agents..."
-
-
-
-
+# Make asdf available system-wide for AI agents
+log_info "Configuring system-wide asdf access for AI agents..."
 
 # Create plugins directory if it doesn't exist
 mkdir -p /home/${CONTAINER_USER}/.asdf/plugins
@@ -174,7 +176,18 @@ fi
 #################
 if [ ! -d "/home/${CONTAINER_USER}/.oh-my-zsh" ]; then
   log_info "Installing Oh My Zsh..."
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+  OMZ_INSTALL_SCRIPT="/tmp/ohmyzsh-install-${RANDOM}.sh"
+  if ! curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -o "${OMZ_INSTALL_SCRIPT}"; then
+    exit_with_error "Failed to download Oh My Zsh install script — check network connectivity and proxy settings"
+  fi
+  if [ ! -s "${OMZ_INSTALL_SCRIPT}" ]; then
+    exit_with_error "Oh My Zsh install script is empty or missing at ${OMZ_INSTALL_SCRIPT}"
+  fi
+  if ! sh "${OMZ_INSTALL_SCRIPT}" --unattended; then
+    rm -f "${OMZ_INSTALL_SCRIPT}"
+    exit_with_error "Oh My Zsh installation failed"
+  fi
+  rm -f "${OMZ_INSTALL_SCRIPT}"
 else
   log_info "Oh My Zsh already installed — skipping"
 fi
@@ -220,71 +233,45 @@ fi
 # Install Base Tools
 #####################
 log_info "Installing core packages..."
-sudo apt-get update
-sudo apt-get install -y curl vim git gh jq yq nmap sipcalc wget unzip zip
-
-# Install Python build dependencies for asdf Python compilation
-log_info "Installing Python build dependencies..."
-sudo apt-get install -y \
-  build-essential \
-  libbz2-dev \
-  libffi-dev \
-  libncurses5-dev \
-  libncursesw5-dev \
-  libreadline-dev \
-  libsqlite3-dev \
-  libssl-dev \
-  liblzma-dev \
-  tk-dev \
-  uuid-dev \
-  zlib1g-dev
+log_info "Proxy environment: HTTP_PROXY=${HTTP_PROXY:-unset} http_proxy=${http_proxy:-unset}"
+if ! sudo apt-get update -qq; then
+  exit_with_error "apt-get update failed. Check proxy settings and network connectivity. HTTP_PROXY=${HTTP_PROXY:-unset}"
+fi
+if ! sudo apt-get install -y -qq curl vim-tiny git gh nmap sipcalc wget unzip zip netcat-openbsd bc; then
+  exit_with_error "apt-get install failed for core packages"
+fi
 
 ##############################
 # Install Optional Extra Tools
 ##############################
 if [ -n "${EXTRA_APT_PACKAGES:-}" ]; then
   log_info "Installing extra packages: ${EXTRA_APT_PACKAGES}"
-  sudo apt-get install -y ${EXTRA_APT_PACKAGES}
+  if ! sudo apt-get install -y ${EXTRA_APT_PACKAGES}; then
+    exit_with_error "apt-get install failed for extra packages: ${EXTRA_APT_PACKAGES}"
+  fi
 fi
 
-if [ -f "${WORK_DIR}/.tool-versions" ]; then
+if [ -f "${WORK_DIR}/.tool-versions" ] && grep -qE '^[a-zA-Z]' "${WORK_DIR}/.tool-versions"; then
   log_info "Installing asdf plugins from .tool-versions..."
-  cut -d' ' -f1 "${WORK_DIR}/.tool-versions" | while read -r plugin; do
+  grep -E '^[a-zA-Z]' "${WORK_DIR}/.tool-versions" | cut -d' ' -f1 | while read -r plugin; do
     install_asdf_plugin "$plugin"
   done
 
-  # Install Python first (always required for other tools)
-  if grep -q "^python " "${WORK_DIR}/.tool-versions"; then
-    PYTHON_VERSION=$(grep "^python " "${WORK_DIR}/.tool-versions" | cut -d' ' -f2)
-    log_info "Installing Python ${PYTHON_VERSION} first (from .tool-versions, required for other tools)..."
-  else
-    PYTHON_VERSION="${DEFAULT_PYTHON_VERSION}"
-    log_info "Installing Python ${PYTHON_VERSION} first (fallback version, required for other tools)..."
-  fi
-
-  if ! asdf install python "$PYTHON_VERSION"; then
-    exit_with_error "❌ Failed to install python $PYTHON_VERSION"
-  fi
-  if ! asdf reshim python; then
-    exit_with_error "❌ Failed to reshim python after installation"
-  fi
-
-  log_info "Installing remaining tools from .tool-versions..."
+  log_info "Installing tools from .tool-versions..."
   if ! asdf install; then
     log_warn "❌ asdf install failed — tool versions may not be fully installed"
   fi
+
+  log_info "Running asdf reshim..."
+  if ! asdf reshim; then
+    exit_with_error "❌ asdf reshim failed"
+  fi
 else
-  log_info "No .tool-versions file found — skipping general asdf install"
+  log_info "No .tool-versions file found (or file is empty) — skipping asdf install"
 fi
 
-# Ensure reshim is run for the current user
-log_info "Running asdf reshim..."
-if ! asdf reshim; then
-  exit_with_error "❌ asdf reshim failed"
-fi
-
-# Create symlinks in /usr/local/bin for direct access by Amazon Q agents
-log_info "Creating symlinks for Amazon Q agent direct access..."
+# Create symlinks in /usr/local/bin for direct access by AI agents
+log_info "Creating symlinks for AI agent direct access..."
 if [ -d "/home/${CONTAINER_USER}/.asdf/shims" ]; then
   for shim in /home/${CONTAINER_USER}/.asdf/shims/*; do
     if [ -f "$shim" ] && [ -x "$shim" ]; then
@@ -303,14 +290,6 @@ if [ -d "/home/${CONTAINER_USER}/.asdf/shims" ]; then
   done
 fi
 
-# Install pipx right after Python is available
-log_info "Installing pipx..."
-python -m pip install --upgrade pip --root-user-action=ignore
-python -m pip install pipx --root-user-action=ignore
-if ! asdf reshim python; then
-  exit_with_error "❌ asdf reshim python failed after pipx install"
-fi
-
 # Install Caylent Devcontainer CLI
 log_info "Installing Caylent Devcontainer CLI..."
 if [ -n "${CLI_VERSION:-}" ]; then
@@ -327,23 +306,37 @@ fi
 
 install_with_pipx "${CLI_INSTALL_CMD}"
 
-# Verify asdf is working properly
-log_info "Verifying asdf installation..."
-if ! asdf current; then
-  exit_with_error "❌ asdf current failed - installation may be incomplete"
+# Verify asdf is working properly (only if tools were configured)
+if [ -f "${WORK_DIR}/.tool-versions" ] && grep -qE '^[a-zA-Z]' "${WORK_DIR}/.tool-versions"; then
+  log_info "Verifying asdf installation..."
+  if ! asdf current; then
+    exit_with_error "❌ asdf current failed - installation may be incomplete"
+  fi
+else
+  log_info "No asdf tools configured — skipping verification"
 fi
 
-#################
-# Python Tools  #
-#################
-log_info "Verifying Python installation via asdf..."
-ASDF_PYTHON_PATH=$(asdf which python || true)
-if [[ -z "$ASDF_PYTHON_PATH" || "$ASDF_PYTHON_PATH" != *".asdf"* ]]; then
-  exit_with_error "❌ 'python' is not provided by asdf. Found: $ASDF_PYTHON_PATH"
-fi
+##############
+# Host Proxy #
+##############
+# Proxy environment variables are sourced from shell.env (generated by write_shell_env).
+# This section validates that host proxy is accessible when HOST_PROXY=true.
 
-log_info "Installing Python packages..."
-python -m pip install ruamel_yaml --root-user-action=ignore
+if [ "${HOST_PROXY:-false}" = "true" ]; then
+  if [ -z "${HOST_PROXY_URL:-}" ]; then
+    exit_with_error "❌ HOST_PROXY=true but HOST_PROXY_URL is not set. Set HOST_PROXY_URL in shell.env (e.g., http://host.docker.internal:3128)"
+  fi
+
+  parse_proxy_host_port "${HOST_PROXY_URL}"
+
+  if is_wsl; then
+    validate_host_proxy "${PROXY_PARSED_HOST}" "${PROXY_PARSED_PORT}" "${HOST_PROXY_TIMEOUT:-10}" "wsl-family-os/README.md"
+  else
+    validate_host_proxy "${PROXY_PARSED_HOST}" "${PROXY_PARSED_PORT}" "${HOST_PROXY_TIMEOUT:-10}" "nix-family-os/README.md"
+  fi
+else
+  log_info "Host proxy not enabled (HOST_PROXY=${HOST_PROXY:-false}) - skipping validation"
+fi
 
 #############
 # AWS Tools #
@@ -351,39 +344,79 @@ python -m pip install ruamel_yaml --root-user-action=ignore
 log_info "Installing AWS SSO utilities..."
 install_with_pipx "aws-sso-util"
 
+###################
+# Claude Code CLI #
+###################
+log_info "Installing Claude Code CLI..."
+
+# Download install script first to ensure it succeeds before piping to bash
+CLAUDE_INSTALL_SCRIPT="/tmp/claude-install-${RANDOM}.sh"
+
+if ! sudo -u "${CONTAINER_USER}" curl -fsSL https://claude.ai/install.sh -o "${CLAUDE_INSTALL_SCRIPT}"; then
+  exit_with_error "❌ Failed to download Claude Code install script from https://claude.ai/install.sh - check network connectivity and proxy settings"
+fi
+
+# Verify script was downloaded and is not empty
+if [ ! -s "${CLAUDE_INSTALL_SCRIPT}" ]; then
+  exit_with_error "❌ Claude Code install script is empty or missing at ${CLAUDE_INSTALL_SCRIPT}"
+fi
+
+# Execute install script
+log_info "Executing Claude Code install script..."
+if uname -r | grep -i microsoft > /dev/null; then
+  # WSL compatibility: Run directly without sudo -u
+  if ! PATH="/home/${CONTAINER_USER}/.local/bin:$PATH" bash "${CLAUDE_INSTALL_SCRIPT}"; then
+    rm -f "${CLAUDE_INSTALL_SCRIPT}"
+    exit_with_error "❌ Failed to execute Claude Code install script"
+  fi
+else
+  # Non-WSL: Install as container user
+  if ! sudo -u "${CONTAINER_USER}" PATH="/home/${CONTAINER_USER}/.local/bin:$PATH" bash "${CLAUDE_INSTALL_SCRIPT}"; then
+    rm -f "${CLAUDE_INSTALL_SCRIPT}"
+    exit_with_error "❌ Failed to execute Claude Code install script"
+  fi
+fi
+
+# Clean up install script
+rm -f "${CLAUDE_INSTALL_SCRIPT}"
+
+log_info "Verifying Claude Code CLI installation..."
+CLAUDE_BIN="/home/${CONTAINER_USER}/.local/bin/claude"
+if [ ! -f "$CLAUDE_BIN" ]; then
+  exit_with_error "❌ Claude Code binary not found at expected location: $CLAUDE_BIN"
+fi
+
+if [ ! -x "$CLAUDE_BIN" ]; then
+  exit_with_error "❌ Claude Code binary exists but is not executable: $CLAUDE_BIN"
+fi
+
+CLAUDE_VERSION=$(sudo -u "${CONTAINER_USER}" "${CLAUDE_BIN}" --version 2>&1 || echo "unknown")
+log_success "Claude Code CLI installed successfully: ${CLAUDE_VERSION}"
+
 #################
 # Configure Git #
 #################
 if [ "$CICD_VALUE" != "true" ]; then
   log_info "Setting up Git credentials..."
-  cat <<EOF > /home/${CONTAINER_USER}/.netrc
-machine ${GIT_PROVIDER_URL}
-login ${GIT_USER}
-password ${GIT_TOKEN}
-EOF
-  chmod 600 /home/${CONTAINER_USER}/.netrc
 
-  cat <<EOF >> /home/${CONTAINER_USER}/.gitconfig
-[user]
-    name = ${GIT_USER}
-    email = ${GIT_USER_EMAIL}
-[core]
-    editor = vim
-[push]
-    autoSetupRemote = true
-[safe]
-    directory = *
-[pager]
-    branch = false
-    config = false
-    diff = false
-    log = false
-    show = false
-    status = false
-    tag = false
-[credential]
-    helper = store
-EOF
+  if [ -z "${GIT_AUTH_METHOD:-}" ]; then
+    exit_with_error "❌ GIT_AUTH_METHOD is required. Please regenerate project files."
+  fi
+
+  # Shared git config (both methods)
+  configure_git_shared "${CONTAINER_USER}" "${GIT_USER}" "${GIT_USER_EMAIL}"
+
+  case "${GIT_AUTH_METHOD}" in
+    token)
+      configure_git_token "${CONTAINER_USER}" "${GIT_PROVIDER_URL}" "${GIT_USER}" "${GIT_TOKEN}"
+      ;;
+    ssh)
+      configure_git_ssh "${CONTAINER_USER}" "${GIT_PROVIDER_URL}" "${WORK_DIR}"
+      ;;
+    *)
+      exit_with_error "❌ Invalid GIT_AUTH_METHOD: '${GIT_AUTH_METHOD}'. Must be 'token' or 'ssh'."
+      ;;
+  esac
 else
   log_info "CICD mode enabled - skipping Git configuration"
 fi
@@ -413,10 +446,10 @@ log_info "Running project-specific setup script..."
 if [ -f "${WORK_DIR}/.devcontainer/project-setup.sh" ]; then
   if uname -r | grep -i microsoft > /dev/null; then
     # WSL compatibility: Run directly without sudo -u
-    bash -c "source /home/${CONTAINER_USER}/.asdf/asdf.sh && cd '${WORK_DIR}' && bash '${WORK_DIR}/.devcontainer/project-setup.sh'"
+    bash -c "source '${WORK_DIR}/shell.env' && source /home/${CONTAINER_USER}/.asdf/asdf.sh && cd '${WORK_DIR}' && BASH_ENV='${WORK_DIR}/.devcontainer/devcontainer-functions.sh' bash '${WORK_DIR}/.devcontainer/project-setup.sh'"
   else
     # Non-WSL: Use sudo -u to run as container user
-    sudo -u "${CONTAINER_USER}" bash -c "source /home/${CONTAINER_USER}/.asdf/asdf.sh && cd '${WORK_DIR}' && bash '${WORK_DIR}/.devcontainer/project-setup.sh'"
+    sudo -u "${CONTAINER_USER}" bash -c "source '${WORK_DIR}/shell.env' && source /home/${CONTAINER_USER}/.asdf/asdf.sh && cd '${WORK_DIR}' && BASH_ENV='${WORK_DIR}/.devcontainer/devcontainer-functions.sh' bash '${WORK_DIR}/.devcontainer/project-setup.sh'"
   fi
 else
   log_warn "No project-specific setup script found at ${WORK_DIR}/.devcontainer/project-setup.sh"

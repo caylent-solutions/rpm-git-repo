@@ -18,6 +18,8 @@ import contextlib
 import io
 import logging
 import unittest
+
+import pytest
 from unittest import mock
 
 from color import SetDefaultColoring
@@ -99,3 +101,196 @@ class TestRepoLogger(unittest.TestCase):
                     f"^{opt_color}100% pass{opt_color}$",
                     f"failed for level {name}",
                 )
+
+
+@pytest.mark.unit
+class TestRepoLoggerInit(unittest.TestCase):
+    """Tests for RepoLogger initialization."""
+
+    def test_logger_inherits_from_logging_logger(self):
+        """RepoLogger should inherit from logging.Logger."""
+        logger = RepoLogger(__name__)
+        self.assertIsInstance(logger, logging.Logger)
+
+    def test_logger_adds_handler(self):
+        """RepoLogger should add a handler on initialization."""
+        logger = RepoLogger(__name__)
+        self.assertGreater(len(logger.handlers), 0)
+
+    def test_logger_uses_coloring_formatter(self):
+        """RepoLogger should use _LogColoringFormatter."""
+        from repo_logging import _LogColoringFormatter
+
+        logger = RepoLogger(__name__)
+        handler = logger.handlers[0]
+        self.assertIsInstance(handler.formatter, _LogColoringFormatter)
+
+    def test_logger_accepts_custom_config(self):
+        """RepoLogger should accept custom config."""
+        config = mock.Mock()
+        config.GetString.return_value = None
+        logger = RepoLogger(__name__, config=config)
+        self.assertIsNotNone(logger)
+
+
+@pytest.mark.unit
+class TestLogColoringFormatter(unittest.TestCase):
+    """Tests for _LogColoringFormatter."""
+
+    def test_formatter_initializes_with_config(self):
+        """_LogColoringFormatter should initialize with config."""
+        from repo_logging import _LogColoringFormatter
+
+        config = mock.Mock()
+        config.GetString.return_value = None
+        formatter = _LogColoringFormatter(config)
+        self.assertIsNotNone(formatter.config)
+
+    def test_formatter_uses_default_config_when_none(self):
+        """_LogColoringFormatter should use default config when None."""
+        from repo_logging import _LogColoringFormatter, _ConfigMock
+
+        formatter = _LogColoringFormatter()
+        self.assertIsInstance(formatter.config, _ConfigMock)
+
+    def test_formatter_format_applies_color(self):
+        """_LogColoringFormatter.format should apply color to message."""
+        from repo_logging import _LogColoringFormatter
+
+        SetDefaultColoring("always")
+        formatter = _LogColoringFormatter()
+        record = logging.LogRecord(
+            "test", logging.ERROR, "path", 1, "test message", (), None
+        )
+        result = formatter.format(record)
+        # Should contain ANSI codes or message
+        self.assertIn("test message", result)
+
+    def test_formatter_format_returns_plain_for_info(self):
+        """_LogColoringFormatter.format should return plain text for INFO."""
+        from repo_logging import _LogColoringFormatter
+
+        formatter = _LogColoringFormatter()
+        record = logging.LogRecord(
+            "test", logging.INFO, "path", 1, "test message", (), None
+        )
+        result = formatter.format(record)
+        self.assertIn("test message", result)
+
+
+@pytest.mark.unit
+class TestLogColoring(unittest.TestCase):
+    """Tests for _LogColoring class."""
+
+    def test_log_coloring_initializes(self):
+        """_LogColoring should initialize correctly."""
+        from repo_logging import _LogColoring, _ConfigMock
+
+        config = _ConfigMock()
+        coloring = _LogColoring(config)
+        self.assertIsNotNone(coloring.error)
+        self.assertIsNotNone(coloring.warning)
+
+    def test_log_coloring_has_level_map(self):
+        """_LogColoring should have levelMap with ERROR and WARNING."""
+        from repo_logging import _LogColoring, _ConfigMock
+
+        config = _ConfigMock()
+        coloring = _LogColoring(config)
+        self.assertIn("ERROR", coloring.levelMap)
+        self.assertIn("WARNING", coloring.levelMap)
+
+    def test_log_coloring_error_is_callable(self):
+        """_LogColoring.error should be callable."""
+        from repo_logging import _LogColoring, _ConfigMock
+
+        config = _ConfigMock()
+        coloring = _LogColoring(config)
+        self.assertTrue(callable(coloring.error))
+
+    def test_log_coloring_warning_is_callable(self):
+        """_LogColoring.warning should be callable."""
+        from repo_logging import _LogColoring, _ConfigMock
+
+        config = _ConfigMock()
+        coloring = _LogColoring(config)
+        self.assertTrue(callable(coloring.warning))
+
+
+@pytest.mark.unit
+class TestConfigMock(unittest.TestCase):
+    """Tests for _ConfigMock class."""
+
+    def test_config_mock_has_default_values(self):
+        """_ConfigMock should have default_values attribute."""
+        from repo_logging import _ConfigMock
+
+        config = _ConfigMock()
+        self.assertIsInstance(config.default_values, dict)
+
+    def test_config_mock_get_string_returns_value(self):
+        """_ConfigMock.GetString should return value from defaults."""
+        from repo_logging import _ConfigMock
+
+        config = _ConfigMock()
+        result = config.GetString("color.ui")
+        self.assertEqual(result, "auto")
+
+    def test_config_mock_get_string_returns_none_for_missing(self):
+        """_ConfigMock.GetString should return None for missing keys."""
+        from repo_logging import _ConfigMock
+
+        config = _ConfigMock()
+        result = config.GetString("nonexistent.key")
+        self.assertIsNone(result)
+
+
+@pytest.mark.unit
+class TestLogAggregatedErrorsWithNoErrors(unittest.TestCase):
+    """Tests for log_aggregated_errors with various scenarios."""
+
+    @mock.patch.object(RepoLogger, "error")
+    def test_log_aggregated_errors_with_none_list(self, mock_error):
+        """log_aggregated_errors should handle None aggregate_errors."""
+        logger = RepoLogger(__name__)
+        logger.log_aggregated_errors(RepoExitError(aggregate_errors=None))
+        # Should call error for separator and message
+        self.assertGreater(mock_error.call_count, 0)
+
+    @mock.patch.object(RepoLogger, "error")
+    def test_log_aggregated_errors_with_empty_list(self, mock_error):
+        """log_aggregated_errors should handle empty aggregate_errors."""
+        logger = RepoLogger(__name__)
+        logger.log_aggregated_errors(RepoExitError(aggregate_errors=[]))
+        # Should call error for separator and single error message
+        self.assertGreater(mock_error.call_count, 1)
+
+    @mock.patch.object(RepoLogger, "error")
+    def test_log_aggregated_errors_with_exactly_max_errors(self, mock_error):
+        """log_aggregated_errors should not show +N when exactly MAX_PRINT_ERRORS."""
+        from repo_logging import MAX_PRINT_ERRORS
+
+        logger = RepoLogger(__name__)
+        errors = [Exception(f"error{i}") for i in range(MAX_PRINT_ERRORS)]
+        logger.log_aggregated_errors(RepoExitError(aggregate_errors=errors))
+        # Should not call error with "+N additional" message
+        calls = [str(call) for call in mock_error.call_args_list]
+        additional_calls = [c for c in calls if "additional" in c]
+        self.assertEqual(len(additional_calls), 0)
+
+    @mock.patch.object(RepoLogger, "error")
+    def test_log_aggregated_errors_with_one_extra_error(self, mock_error):
+        """log_aggregated_errors should show +1 when one over MAX_PRINT_ERRORS."""
+        from repo_logging import MAX_PRINT_ERRORS
+
+        logger = RepoLogger(__name__)
+        errors = [Exception(f"error{i}") for i in range(MAX_PRINT_ERRORS + 1)]
+        logger.log_aggregated_errors(RepoExitError(aggregate_errors=errors))
+        # Should call error with "+1 additional" message
+        calls = [str(call) for call in mock_error.call_args_list]
+        additional_calls = [
+            c
+            for c in calls
+            if "+1 additional" in c or "call('+%d additional" in c
+        ]
+        self.assertGreater(len(additional_calls), 0)

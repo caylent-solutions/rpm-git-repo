@@ -18,3 +18,8 @@ shell.env
 devcontainer-environment-variables.json
 .devcontainer/aws-profile-map.json
 .coverage
+.coverage-data
+coverage.json
+
+.devcontainer/ssh-private-key
+rpm-git-repo-backlog

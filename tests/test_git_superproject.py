@@ -537,3 +537,197 @@ class SuperprojectTestCase(unittest.TestCase):
                             ],
                         ),
                     )
+
+
+# Additional comprehensive tests below
+
+
+@pytest.mark.unit
+class TestSuperprojectExtended(unittest.TestCase):
+    """Extended tests for Superproject class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.tempdirobj = tempfile.TemporaryDirectory(prefix="repo_tests")
+        self.tempdir = self.tempdirobj.name
+        self.repodir = os.path.join(self.tempdir, ".repo")
+        self.manifest_file = os.path.join(
+            self.repodir, manifest_xml.MANIFEST_FILE_NAME
+        )
+        os.mkdir(self.repodir)
+
+        env = {"GIT_TRACE2_PARENT_SID": "parent_sid"}
+        self.git_event_log = git_trace2_event_log.EventLog(env=env)
+
+        gitdir = os.path.join(self.repodir, "manifests.git")
+        os.mkdir(gitdir)
+        with open(os.path.join(gitdir, "config"), "w") as fp:
+            fp.write('[remote "origin"]\nurl = https://localhost:0/manifest\n')
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.tempdirobj.cleanup()
+
+    def getXmlManifest(self, data):
+        """Helper to initialize a manifest for testing."""
+        with open(self.manifest_file, "w") as fp:
+            fp.write(data)
+        return manifest_xml.XmlManifest(self.repodir, self.manifest_file)
+
+    def test_init_sets_attributes(self):
+        """Test __init__ sets all expected attributes."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        self.assertEqual(superproject.name, "super")
+        self.assertEqual(superproject.remote, remote)
+        self.assertEqual(superproject.revision, "refs/heads/main")
+        self.assertIsNone(superproject._project_commit_ids)
+
+    def test_SetQuiet(self):
+        """Test SetQuiet() sets _quiet attribute."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        superproject.SetQuiet(True)
+        self.assertTrue(superproject._quiet)
+
+        superproject.SetQuiet(False)
+        self.assertFalse(superproject._quiet)
+
+    def test_SetPrintMessages(self):
+        """Test SetPrintMessages() sets _print_messages attribute."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        superproject.SetPrintMessages(True)
+        self.assertTrue(superproject._print_messages)
+
+        superproject.SetPrintMessages(False)
+        self.assertFalse(superproject._print_messages)
+
+    def test_project_commit_ids_property(self):
+        """Test project_commit_ids property returns stored value."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        test_ids = {"project1": "abc123", "project2": "def456"}
+        superproject._project_commit_ids = test_ids
+
+        self.assertEqual(superproject.project_commit_ids, test_ids)
+
+    def test_manifest_path_property_exists(self):
+        """Test manifest_path property when file exists."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        # Create the manifest file
+        os.makedirs(superproject._superproject_path, exist_ok=True)
+        with open(superproject._manifest_path, "w") as f:
+            f.write("<manifest></manifest>")
+
+        self.assertEqual(
+            superproject.manifest_path, superproject._manifest_path
+        )
+
+    def test_manifest_path_property_not_exists(self):
+        """Test manifest_path property when file doesn't exist."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        self.assertIsNone(superproject.manifest_path)
+
+    def test_SkipUpdatingProjectRevisionId_no_path(self):
+        """Test _SkipUpdatingProjectRevisionId with no path."""
+        manifest = self.getXmlManifest(
+            '<manifest><remote name="origin" fetch="http://localhost"/>'
+            '<default remote="origin" revision="main"/>'
+            '<superproject name="super"/></manifest>'
+        )
+        remote = manifest.remotes.get("origin").ToRemoteSpec("super")
+        superproject = git_superproject.Superproject(
+            manifest, "super", remote, "refs/heads/main"
+        )
+
+        project = mock.MagicMock()
+        project.relpath = None
+
+        self.assertTrue(superproject._SkipUpdatingProjectRevisionId(project))
+
+
+@pytest.mark.unit
+class TestSuperprojectHelperFunctions(unittest.TestCase):
+    """Tests for helper functions in git_superproject module."""
+
+    def test_PrintMessages_with_use_superproject_set(self):
+        """Test PrintMessages() when use_superproject is set."""
+        manifest = mock.MagicMock()
+        manifest.superproject = None
+
+        self.assertTrue(git_superproject.PrintMessages(True, manifest))
+        self.assertTrue(git_superproject.PrintMessages(False, manifest))
+
+    def test_PrintMessages_with_manifest_superproject(self):
+        """Test PrintMessages() when manifest has superproject."""
+        manifest = mock.MagicMock()
+        manifest.superproject = "superproject"
+
+        self.assertTrue(git_superproject.PrintMessages(None, manifest))
+
+    def test_PrintMessages_neither_set(self):
+        """Test PrintMessages() when neither is set."""
+        manifest = mock.MagicMock()
+        manifest.superproject = None
+
+        self.assertFalse(git_superproject.PrintMessages(None, manifest))
+
+    def test_UseSuperproject_no_manifest_superproject(self):
+        """Test UseSuperproject() with no manifest superproject."""
+        manifest = mock.MagicMock()
+        manifest.superproject = None
+
+        self.assertFalse(git_superproject.UseSuperproject(None, manifest))
+        self.assertFalse(git_superproject.UseSuperproject(True, manifest))

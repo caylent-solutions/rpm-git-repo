@@ -19,6 +19,9 @@ import platform
 import re
 import tempfile
 import unittest
+from unittest import mock
+
+import pytest
 import xml.dom.minidom
 
 import error
@@ -1836,3 +1839,977 @@ class CircularIncludeDetectionTests(ManifestParseTestCase):
                 _ = manifest.projects
         finally:
             sys.setrecursionlimit(old_limit)
+
+
+# ============================================================================
+# Additional Unit Tests for Coverage Improvement
+# ============================================================================
+
+
+@pytest.mark.unit
+class ParseListTests(unittest.TestCase):
+    """Tests for _ParseList method."""
+
+    def setUp(self):
+        self.tempdirobj = tempfile.TemporaryDirectory(prefix="repo_tests")
+        self.tempdir = self.tempdirobj.name
+        self.repodir = os.path.join(self.tempdir, ".repo")
+        self.manifest_dir = os.path.join(self.repodir, "manifests")
+        self.manifest_file = os.path.join(
+            self.repodir, manifest_xml.MANIFEST_FILE_NAME
+        )
+        os.mkdir(self.repodir)
+        os.mkdir(self.manifest_dir)
+
+        gitdir = os.path.join(self.repodir, "manifests.git")
+        os.mkdir(gitdir)
+        with open(os.path.join(gitdir, "config"), "w") as fp:
+            fp.write(
+                '[remote "origin"]\n\turl = https://localhost:0/manifest\n'
+            )
+
+        with open(self.manifest_file, "w", encoding="utf-8") as fp:
+            fp.write(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<manifest>\n"
+                '  <remote name="test" fetch="http://localhost" />\n'
+                '  <default remote="test" revision="main" />\n'
+                "</manifest>\n"
+            )
+        self.manifest = manifest_xml.XmlManifest(
+            self.repodir, self.manifest_file
+        )
+
+    def tearDown(self):
+        self.tempdirobj.cleanup()
+
+    @pytest.mark.unit
+    def test_parse_list_empty_string(self):
+        """Test _ParseList with empty string returns empty list."""
+        result = self.manifest._ParseList("")
+        self.assertEqual(result, [])
+
+    @pytest.mark.unit
+    def test_parse_list_whitespace_only(self):
+        """Test _ParseList with whitespace returns empty list."""
+        result = self.manifest._ParseList("   \t\n  ")
+        self.assertEqual(result, [])
+
+    @pytest.mark.unit
+    def test_parse_list_comma_separated(self):
+        """Test _ParseList with comma-separated values."""
+        result = self.manifest._ParseList("a,b,c")
+        self.assertEqual(result, ["a", "b", "c"])
+
+    @pytest.mark.unit
+    def test_parse_list_space_separated(self):
+        """Test _ParseList with space-separated values."""
+        result = self.manifest._ParseList("a b c")
+        self.assertEqual(result, ["a", "b", "c"])
+
+    @pytest.mark.unit
+    def test_parse_list_mixed_separators(self):
+        """Test _ParseList with mixed comma and space separators."""
+        result = self.manifest._ParseList("a, b  c,d\te")
+        self.assertEqual(result, ["a", "b", "c", "d", "e"])
+
+    @pytest.mark.unit
+    def test_parse_list_with_empty_elements(self):
+        """Test _ParseList filters out empty elements."""
+        result = self.manifest._ParseList("a,,b, ,c")
+        self.assertEqual(result, ["a", "b", "c"])
+
+    @pytest.mark.unit
+    def test_parse_list_single_element(self):
+        """Test _ParseList with single element."""
+        result = self.manifest._ParseList("single")
+        self.assertEqual(result, ["single"])
+
+
+@pytest.mark.unit
+class GetGroupsStrTests(ManifestParseTestCase):
+    """Tests for GetGroupsStr methods."""
+
+    @pytest.mark.unit
+    def test_manifest_get_groups_str_uses_manifest_groups(self):
+        """Test XmlManifest.GetGroupsStr uses manifestProject.manifest_groups."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="test" fetch="http://localhost" />\n'
+            '  <default remote="test" revision="main" />\n'
+            "</manifest>\n"
+        )
+        with mock.patch.object(
+            type(manifest.manifestProject),
+            "manifest_groups",
+            new_callable=mock.PropertyMock,
+            return_value="group1,group2",
+        ):
+            result = manifest.GetGroupsStr()
+            self.assertEqual(result, "group1,group2")
+
+    @pytest.mark.unit
+    def test_manifest_get_groups_str_fallback_to_default(self):
+        """Test XmlManifest.GetGroupsStr falls back to GetDefaultGroupsStr."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="test" fetch="http://localhost" />\n'
+            '  <default remote="test" revision="main" />\n'
+            "</manifest>\n"
+        )
+        with mock.patch.object(
+            type(manifest.manifestProject),
+            "manifest_groups",
+            new_callable=mock.PropertyMock,
+            return_value=None,
+        ):
+            with mock.patch.object(
+                manifest, "GetDefaultGroupsStr", return_value="default-groups"
+            ):
+                result = manifest.GetGroupsStr()
+                self.assertEqual(result, "default-groups")
+
+
+@pytest.mark.unit
+class DefaultClassTests(unittest.TestCase):
+    """Tests for _Default class."""
+
+    @pytest.mark.unit
+    def test_default_initialization(self):
+        """Test _Default class has correct default values."""
+        d = manifest_xml._Default()
+        self.assertIsNone(d.revisionExpr)
+        self.assertIsNone(d.destBranchExpr)
+        self.assertIsNone(d.upstreamExpr)
+        self.assertIsNone(d.remote)
+        self.assertIsNone(d.sync_j)
+        self.assertFalse(d.sync_c)
+        self.assertFalse(d.sync_s)
+        self.assertTrue(d.sync_tags)
+
+    @pytest.mark.unit
+    def test_default_equality_same_values(self):
+        """Test _Default equality with identical objects."""
+        d1 = manifest_xml._Default()
+        d2 = manifest_xml._Default()
+        self.assertEqual(d1, d2)
+
+    @pytest.mark.unit
+    def test_default_equality_different_values(self):
+        """Test _Default equality with different values."""
+        d1 = manifest_xml._Default()
+        d1.revisionExpr = "main"
+        d2 = manifest_xml._Default()
+        d2.revisionExpr = "develop"
+        self.assertNotEqual(d1, d2)
+
+    @pytest.mark.unit
+    def test_default_inequality_with_non_default(self):
+        """Test _Default inequality with non-_Default object."""
+        d = manifest_xml._Default()
+        self.assertNotEqual(d, "not a default")
+        self.assertNotEqual(d, None)
+        self.assertNotEqual(d, 123)
+
+    @pytest.mark.unit
+    def test_default_ne_operator(self):
+        """Test _Default __ne__ operator."""
+        d1 = manifest_xml._Default()
+        d2 = manifest_xml._Default()
+        self.assertFalse(d1 != d2)
+
+        d1.sync_c = True
+        self.assertTrue(d1 != d2)
+
+
+@pytest.mark.unit
+class XmlRemoteClassTests(unittest.TestCase):
+    """Tests for _XmlRemote class."""
+
+    @pytest.mark.unit
+    def test_xml_remote_initialization(self):
+        """Test _XmlRemote initialization."""
+        remote = manifest_xml._XmlRemote(
+            name="origin",
+            alias="orig",
+            fetch="https://github.com/",
+            pushUrl="git@github.com:",
+            manifestUrl="https://example.com/manifest",
+            review="https://review.example.com",
+            revision="main",
+        )
+        self.assertEqual(remote.name, "origin")
+        self.assertEqual(remote.remoteAlias, "orig")
+        self.assertEqual(remote.fetchUrl, "https://github.com/")
+        self.assertEqual(remote.pushUrl, "git@github.com:")
+        self.assertEqual(remote.manifestUrl, "https://example.com/manifest")
+        self.assertEqual(remote.reviewUrl, "https://review.example.com")
+        self.assertEqual(remote.revision, "main")
+        self.assertEqual(remote.annotations, [])
+
+    @pytest.mark.unit
+    def test_xml_remote_minimal_initialization(self):
+        """Test _XmlRemote with minimal parameters."""
+        remote = manifest_xml._XmlRemote(
+            name="origin",
+            fetch="https://example.com/",
+            manifestUrl="https://example.com/manifest",
+        )
+        self.assertEqual(remote.name, "origin")
+        self.assertIsNone(remote.remoteAlias)
+        self.assertEqual(remote.fetchUrl, "https://example.com/")
+        self.assertIsNone(remote.pushUrl)
+        self.assertEqual(remote.manifestUrl, "https://example.com/manifest")
+        self.assertIsNone(remote.reviewUrl)
+        self.assertIsNone(remote.revision)
+
+    @pytest.mark.unit
+    def test_xml_remote_equality_same_values(self):
+        """Test _XmlRemote equality with same values."""
+        r1 = manifest_xml._XmlRemote(
+            name="origin",
+            fetch="https://github.com/",
+            manifestUrl="https://example.com/manifest",
+        )
+        r2 = manifest_xml._XmlRemote(
+            name="origin",
+            fetch="https://github.com/",
+            manifestUrl="https://example.com/manifest",
+        )
+        self.assertEqual(r1, r2)
+
+    @pytest.mark.unit
+    def test_xml_remote_inequality_different_names(self):
+        """Test _XmlRemote inequality with different names."""
+        r1 = manifest_xml._XmlRemote(
+            name="origin",
+            fetch="https://github.com/",
+            manifestUrl="https://example.com/manifest",
+        )
+        r2 = manifest_xml._XmlRemote(
+            name="upstream",
+            fetch="https://github.com/",
+            manifestUrl="https://example.com/manifest",
+        )
+        self.assertNotEqual(r1, r2)
+
+    @pytest.mark.unit
+    def test_xml_remote_inequality_with_non_remote(self):
+        """Test _XmlRemote inequality with non-remote object."""
+        remote = manifest_xml._XmlRemote(
+            name="origin",
+            fetch="https://example.com/",
+            manifestUrl="https://example.com/manifest",
+        )
+        self.assertNotEqual(remote, "not a remote")
+        self.assertNotEqual(remote, None)
+        self.assertFalse(remote == 123)
+
+
+@pytest.mark.unit
+class ParseRemoteTests(ManifestParseTestCase):
+    """Tests for _ParseRemote method."""
+
+    @pytest.mark.unit
+    def test_parse_remote_basic(self):
+        """Test parsing a basic remote element."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects  # Force load
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.name, "origin")
+        self.assertEqual(remote.fetchUrl, "https://github.com/")
+
+    @pytest.mark.unit
+    def test_parse_remote_with_alias(self):
+        """Test parsing remote with alias."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" alias="orig" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.remoteAlias, "orig")
+
+    @pytest.mark.unit
+    def test_parse_remote_with_pushurl(self):
+        """Test parsing remote with pushUrl."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" '
+            'pushurl="git@github.com:" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.pushUrl, "git@github.com:")
+
+    @pytest.mark.unit
+    def test_parse_remote_with_review(self):
+        """Test parsing remote with review URL."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" '
+            'review="https://review.example.com" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.reviewUrl, "https://review.example.com")
+
+    @pytest.mark.unit
+    def test_parse_remote_with_revision(self):
+        """Test parsing remote with revision."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" revision="stable" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.revision, "stable")
+
+    @pytest.mark.unit
+    def test_parse_remote_with_annotation(self):
+        """Test parsing remote with annotation child element."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/">\n'
+            '    <annotation name="key" value="val" />\n'
+            "  </remote>\n"
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(len(remote.annotations), 1)
+        self.assertEqual(remote.annotations[0].name, "key")
+        self.assertEqual(remote.annotations[0].value, "val")
+
+
+@pytest.mark.unit
+class ParseDefaultTests(ManifestParseTestCase):
+    """Tests for _ParseDefault method."""
+
+    @pytest.mark.unit
+    def test_parse_default_basic(self):
+        """Test parsing a basic default element."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertEqual(default.remote.name, "origin")
+        self.assertEqual(default.revisionExpr, "main")
+
+    @pytest.mark.unit
+    def test_parse_default_with_dest_branch(self):
+        """Test parsing default with dest-branch."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" dest-branch="develop" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertEqual(default.destBranchExpr, "develop")
+
+    @pytest.mark.unit
+    def test_parse_default_with_upstream(self):
+        """Test parsing default with upstream."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" upstream="refs/heads/stable" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertEqual(default.upstreamExpr, "refs/heads/stable")
+
+    @pytest.mark.unit
+    def test_parse_default_with_sync_j(self):
+        """Test parsing default with sync-j."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" sync-j="4" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertEqual(default.sync_j, 4)
+
+    @pytest.mark.unit
+    def test_parse_default_sync_j_invalid_zero(self):
+        """Test parsing default with sync-j=0 raises error."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" sync-j="0" />\n'
+            "</manifest>\n"
+        )
+        with self.assertRaises(error.ManifestParseError) as cm:
+            _ = manifest.projects
+        self.assertIn("sync-j must be greater than 0", str(cm.exception))
+
+    @pytest.mark.unit
+    def test_parse_default_sync_j_invalid_negative(self):
+        """Test parsing default with sync-j<0 raises error."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" sync-j="-1" />\n'
+            "</manifest>\n"
+        )
+        with self.assertRaises(error.ManifestParseError) as cm:
+            _ = manifest.projects
+        self.assertIn("sync-j must be greater than 0", str(cm.exception))
+
+    @pytest.mark.unit
+    def test_parse_default_with_sync_c(self):
+        """Test parsing default with sync-c=true."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" sync-c="true" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertTrue(default.sync_c)
+
+    @pytest.mark.unit
+    def test_parse_default_with_sync_s(self):
+        """Test parsing default with sync-s=true."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" sync-s="true" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertTrue(default.sync_s)
+
+    @pytest.mark.unit
+    def test_parse_default_with_sync_tags_false(self):
+        """Test parsing default with sync-tags=false."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" sync-tags="false" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        default = manifest.default
+        self.assertFalse(default.sync_tags)
+
+
+@pytest.mark.unit
+class ParseAnnotationTests(ManifestParseTestCase):
+    """Tests for _ParseAnnotation method."""
+
+    @pytest.mark.unit
+    def test_parse_annotation_with_keep_true(self):
+        """Test parsing annotation with keep=true."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/">\n'
+            '    <annotation name="key1" value="val1" keep="true" />\n'
+            "  </remote>\n"
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(len(remote.annotations), 1)
+        self.assertEqual(remote.annotations[0].name, "key1")
+        self.assertEqual(remote.annotations[0].value, "val1")
+        self.assertEqual(remote.annotations[0].keep, "true")
+
+    @pytest.mark.unit
+    def test_parse_annotation_with_keep_false(self):
+        """Test parsing annotation with keep=false."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/">\n'
+            '    <annotation name="key1" value="val1" keep="false" />\n'
+            "  </remote>\n"
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.annotations[0].keep, "false")
+
+    @pytest.mark.unit
+    def test_parse_annotation_default_keep_true(self):
+        """Test parsing annotation defaults keep to true when not specified."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/">\n'
+            '    <annotation name="key1" value="val1" />\n'
+            "  </remote>\n"
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        _ = manifest.projects
+        remote = manifest.remotes["origin"]
+        self.assertEqual(remote.annotations[0].keep, "true")
+
+    @pytest.mark.unit
+    def test_parse_annotation_invalid_keep_value(self):
+        """Test parsing annotation with invalid keep value raises error."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/">\n'
+            '    <annotation name="key1" value="val1" keep="maybe" />\n'
+            "  </remote>\n"
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        with self.assertRaises(error.ManifestParseError) as cm:
+            _ = manifest.projects
+        self.assertIn("keep", str(cm.exception))
+
+
+@pytest.mark.unit
+class ParseCopyFileTests(ManifestParseTestCase):
+    """Tests for _ParseCopyFile method."""
+
+    @pytest.mark.unit
+    def test_parse_copyfile_basic(self):
+        """Test parsing a basic copyfile element."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project">\n'
+            '    <copyfile src="src.txt" dest="dest.txt" />\n'
+            "  </project>\n"
+            "</manifest>\n"
+        )
+        projects = manifest.projects
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(len(projects[0].copyfiles), 1)
+
+    @pytest.mark.unit
+    def test_parse_copyfile_multiple(self):
+        """Test parsing multiple copyfile elements."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project">\n'
+            '    <copyfile src="src1.txt" dest="dest1.txt" />\n'
+            '    <copyfile src="src2.txt" dest="dest2.txt" />\n'
+            "  </project>\n"
+            "</manifest>\n"
+        )
+        projects = manifest.projects
+        self.assertEqual(len(projects[0].copyfiles), 2)
+
+
+@pytest.mark.unit
+class ParseLinkFileTests(ManifestParseTestCase):
+    """Tests for _ParseLinkFile method."""
+
+    @pytest.mark.unit
+    def test_parse_linkfile_basic(self):
+        """Test parsing a basic linkfile element."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project">\n'
+            '    <linkfile src="src.txt" dest="dest.txt" />\n'
+            "  </project>\n"
+            "</manifest>\n"
+        )
+        projects = manifest.projects
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(len(projects[0].linkfiles), 1)
+
+    @pytest.mark.unit
+    def test_parse_linkfile_multiple(self):
+        """Test parsing multiple linkfile elements."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project">\n'
+            '    <linkfile src="src1.txt" dest="dest1.txt" />\n'
+            '    <linkfile src="src2.txt" dest="dest2.txt" />\n'
+            "  </project>\n"
+            "</manifest>\n"
+        )
+        projects = manifest.projects
+        self.assertEqual(len(projects[0].linkfiles), 2)
+
+
+@pytest.mark.unit
+class ManifestPropertiesTests(ManifestParseTestCase):
+    """Tests for XmlManifest properties."""
+
+    @pytest.mark.unit
+    def test_paths_property(self):
+        """Test paths property returns dictionary of paths to projects."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/proj1" path="path1" />\n'
+            '  <project name="test/proj2" path="path2" />\n'
+            "</manifest>\n"
+        )
+        paths = manifest.paths
+        self.assertIn("path1", paths)
+        self.assertIn("path2", paths)
+        self.assertEqual(paths["path1"].name, "test/proj1")
+        self.assertEqual(paths["path2"].name, "test/proj2")
+
+    @pytest.mark.unit
+    def test_remotes_property(self):
+        """Test remotes property returns dictionary of remotes."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <remote name="backup" fetch="https://gitlab.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        remotes = manifest.remotes
+        self.assertIn("origin", remotes)
+        self.assertIn("backup", remotes)
+        self.assertEqual(remotes["origin"].fetchUrl, "https://github.com/")
+        self.assertEqual(remotes["backup"].fetchUrl, "https://gitlab.com/")
+
+    @pytest.mark.unit
+    def test_default_property(self):
+        """Test default property returns _Default object."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="develop" />\n'
+            "</manifest>\n"
+        )
+        default = manifest.default
+        self.assertIsInstance(default, manifest_xml._Default)
+        self.assertEqual(default.revisionExpr, "develop")
+
+    @pytest.mark.unit
+    def test_projects_property(self):
+        """Test projects property returns list of projects."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/proj1" path="path1" />\n'
+            '  <project name="test/proj2" path="path2" />\n'
+            "</manifest>\n"
+        )
+        projects = manifest.projects
+        self.assertEqual(len(projects), 2)
+        self.assertIsInstance(projects[0], project.Project)
+
+
+@pytest.mark.unit
+class ToXmlTests(ManifestParseTestCase):
+    """Tests for ToXml method."""
+
+    @pytest.mark.unit
+    def test_to_xml_basic(self):
+        """Test ToXml generates valid XML document."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project" />\n'
+            "</manifest>\n"
+        )
+        xml_doc = manifest.ToXml()
+        self.assertIsNotNone(xml_doc)
+        self.assertEqual(xml_doc.documentElement.nodeName, "manifest")
+
+    @pytest.mark.unit
+    def test_to_xml_with_groups(self):
+        """Test ToXml with groups parameter."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project" groups="group1,group2" />\n'
+            "</manifest>\n"
+        )
+        xml_doc = manifest.ToXml(groups="group1")
+        self.assertIsNotNone(xml_doc)
+
+    @pytest.mark.unit
+    def test_to_xml_peg_rev_false(self):
+        """Test ToXml with peg_rev=False."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project" />\n'
+            "</manifest>\n"
+        )
+        xml_doc = manifest.ToXml(peg_rev=False)
+        self.assertIsNotNone(xml_doc)
+
+
+@pytest.mark.unit
+class ToDictTests(ManifestParseTestCase):
+    """Tests for ToDict method."""
+
+    @pytest.mark.unit
+    def test_to_dict_basic(self):
+        """Test ToDict converts manifest to dictionary."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project" />\n'
+            "</manifest>\n"
+        )
+        manifest_dict = manifest.ToDict()
+        self.assertIsInstance(manifest_dict, dict)
+        self.assertIn("remote", manifest_dict)
+        self.assertIn("default", manifest_dict)
+        self.assertIn("project", manifest_dict)
+
+    @pytest.mark.unit
+    def test_to_dict_multiple_remotes(self):
+        """Test ToDict with multiple remotes."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <remote name="backup" fetch="https://gitlab.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        manifest_dict = manifest.ToDict()
+        self.assertIsInstance(manifest_dict["remote"], list)
+        self.assertEqual(len(manifest_dict["remote"]), 2)
+
+    @pytest.mark.unit
+    def test_to_dict_single_default(self):
+        """Test ToDict with single default element."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        manifest_dict = manifest.ToDict()
+        self.assertIsInstance(manifest_dict["default"], dict)
+        self.assertEqual(manifest_dict["default"]["remote"], "origin")
+
+
+@pytest.mark.unit
+class UnloadTests(ManifestParseTestCase):
+    """Tests for Unload method."""
+
+    @pytest.mark.unit
+    def test_unload_resets_state(self):
+        """Test Unload resets manifest state."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            '  <project name="test/project" path="project" />\n'
+            "</manifest>\n"
+        )
+        # Load the manifest
+        _ = manifest.projects
+        self.assertTrue(manifest._loaded)
+
+        # Unload it
+        manifest.Unload()
+        self.assertFalse(manifest._loaded)
+        self.assertEqual(manifest._projects, {})
+        self.assertEqual(manifest._paths, {})
+        self.assertEqual(manifest._remotes, {})
+        self.assertIsNone(manifest._default)
+
+
+@pytest.mark.unit
+class JoinUnjoinNameTests(ManifestParseTestCase):
+    """Tests for _JoinName and _UnjoinName methods."""
+
+    @pytest.mark.unit
+    def test_join_name(self):
+        """Test _JoinName joins parent and child names."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        result = manifest._JoinName("parent", "child")
+        self.assertEqual(result, os.path.join("parent", "child"))
+
+    @pytest.mark.unit
+    def test_unjoin_name(self):
+        """Test _UnjoinName computes relative path."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        result = manifest._UnjoinName("parent", "parent/child")
+        self.assertEqual(result, "child")
+
+
+@pytest.mark.unit
+class GetDefaultGroupsStrTests(ManifestParseTestCase):
+    """Tests for GetDefaultGroupsStr method."""
+
+    @pytest.mark.unit
+    def test_get_default_groups_str_with_platform(self):
+        """Test GetDefaultGroupsStr includes platform group."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        result = manifest.GetDefaultGroupsStr(with_platform=True)
+        self.assertIn("platform-", result)
+
+    @pytest.mark.unit
+    def test_get_default_groups_str_without_platform(self):
+        """Test GetDefaultGroupsStr without platform group."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        result = manifest.GetDefaultGroupsStr(with_platform=False)
+        self.assertNotIn("platform-", result)
+
+
+@pytest.mark.unit
+class SubmanifestTests(ManifestParseTestCase):
+    """Tests for submanifest handling."""
+
+    @pytest.mark.unit
+    def test_submanifests_property(self):
+        """Test submanifests property returns empty dict when no submanifests."""
+        manifest = self.getXmlManifest(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<manifest>\n"
+            '  <remote name="origin" fetch="https://github.com/" />\n'
+            '  <default remote="origin" revision="main" />\n'
+            "</manifest>\n"
+        )
+        submanifests = manifest.submanifests
+        self.assertIsInstance(submanifests, dict)
+
+    @pytest.mark.unit
+    def test_add_annotation_to_xml_submanifest(self):
+        """Test AddAnnotation method adds annotation to list."""
+        # Create a mock _XmlSubmanifest with just the annotations attribute
+        submanifest = mock.Mock(spec=manifest_xml._XmlSubmanifest)
+        submanifest.annotations = []
+
+        # Call the actual AddAnnotation method
+        manifest_xml._XmlSubmanifest.AddAnnotation(
+            submanifest, "key", "value", "true"
+        )
+
+        self.assertEqual(len(submanifest.annotations), 1)
+        self.assertEqual(submanifest.annotations[0].name, "key")
+        self.assertEqual(submanifest.annotations[0].value, "value")
+
+
+@pytest.mark.unit
+class SubmanifestSpecTests(unittest.TestCase):
+    """Tests for SubmanifestSpec class."""
+
+    @pytest.mark.unit
+    def test_submanifest_spec_initialization(self):
+        """Test SubmanifestSpec initialization."""
+        spec = manifest_xml.SubmanifestSpec(
+            name="sub",
+            manifestUrl="https://example.com/manifest",
+            manifestName="manifest.xml",
+            revision="main",
+            path="submanifests/sub",
+            groups=["group1", "group2"],
+        )
+        self.assertEqual(spec.name, "sub")
+        self.assertEqual(spec.manifestUrl, "https://example.com/manifest")
+        self.assertEqual(spec.manifestName, "manifest.xml")
+        self.assertEqual(spec.revision, "main")
+        self.assertEqual(spec.path, "submanifests/sub")
+        self.assertEqual(spec.groups, ["group1", "group2"])
+
+    @pytest.mark.unit
+    def test_submanifest_spec_groups_default_empty(self):
+        """Test SubmanifestSpec groups defaults to empty list."""
+        spec = manifest_xml.SubmanifestSpec(
+            name="sub",
+            manifestUrl="https://example.com/manifest",
+            manifestName="manifest.xml",
+            revision="main",
+            path="submanifests/sub",
+            groups=None,
+        )
+        self.assertEqual(spec.groups, [])

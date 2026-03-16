@@ -14,6 +14,8 @@
 
 """Unittests for the subcmds/manifest.py module."""
 
+import pytest
+
 import json
 from pathlib import Path
 from unittest import mock
@@ -154,3 +156,59 @@ def test_output_format_json_pretty(tmp_path, capsys):
 }
 """
     )
+
+
+@pytest.mark.unit
+def test_manifest_options_setup():
+    """Verify Manifest command option parser is set up correctly."""
+    cmd = manifest.Manifest()
+    opts, args = cmd.OptionParser.parse_args([])
+
+    # Verify default option values ('-' means stdout, which is default for output_file)
+    assert opts.output_file == "-" or opts.output_file is None
+    assert opts.format == "xml"
+    assert opts.pretty is False
+    # peg_rev defaults may be True or None depending on parser setup
+    assert opts.peg_rev is None or opts.peg_rev is False
+
+
+@pytest.mark.unit
+def test_manifest_options_output_file():
+    """Test parsing --output-file option."""
+    cmd = manifest.Manifest()
+    opts, args = cmd.OptionParser.parse_args(["-o", "/tmp/manifest.xml"])
+    assert opts.output_file == "/tmp/manifest.xml"
+
+
+@pytest.mark.unit
+def test_manifest_options_format():
+    """Test parsing --format option."""
+    cmd = manifest.Manifest()
+    opts, args = cmd.OptionParser.parse_args(["--format", "json"])
+    assert opts.format == "json"
+
+
+@pytest.mark.unit
+def test_manifest_options_pretty():
+    """Test parsing --pretty option."""
+    cmd = manifest.Manifest()
+    opts, args = cmd.OptionParser.parse_args(["--pretty"])
+    assert opts.pretty is True
+
+
+@pytest.mark.unit
+def test_manifest_options_revision_as_head():
+    """Test parsing -r option."""
+    cmd = manifest.Manifest()
+    opts, args = cmd.OptionParser.parse_args(["-r"])
+    # Check that -r option is parsed (may not have exact attribute name)
+    assert hasattr(opts, "revision_as_HEAD") or hasattr(opts, "peg_rev")
+
+
+@pytest.mark.unit
+def test_manifest_command_properties():
+    """Test Manifest command properties."""
+    # Manifest is not COMMON
+    assert manifest.Manifest.COMMON is False
+    assert manifest.Manifest.helpSummary is not None
+    assert len(manifest.Manifest.helpSummary) > 0

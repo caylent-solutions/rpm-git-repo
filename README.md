@@ -31,8 +31,10 @@ A multi-repository management tool for Git, built for the RPM ecosystem. RPM Git
 
 ### Quick Start (Recommended)
 
+Install directly from the repository using [pipx](https://pipx.pypa.io/):
+
 ```bash
-pip install rpm-git-repo
+pipx install git+https://github.com/caylent-solutions/rpm-git-repo.git@main
 ```
 
 ### Production (Pinned Version)
@@ -40,8 +42,10 @@ pip install rpm-git-repo
 For production environments, pin to a specific version:
 
 ```bash
-pip install rpm-git-repo==0.1.0
+pipx install rpm-git-repo==0.1.0
 ```
+
+> **Note:** PyPI installs (`pipx install rpm-git-repo`) will be available after the first published release.
 
 ## Quick Start
 

@@ -360,3 +360,215 @@ class TestProgressShowJobsWhenParallel(unittest.TestCase):
     def test_show_jobs_false_initially(self):
         p = progress.Progress("Test", total=5, quiet=True)
         self.assertFalse(p._show_jobs)
+
+
+@pytest.mark.unit
+class TestProgressDisplayMessage(unittest.TestCase):
+    """Tests for Progress.display_message()."""
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_display_message_writes_message(self, mock_stderr):
+        """display_message should write message to stderr."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            p = progress.Progress("Test", total=5, delay=False, quiet=False)
+            p.display_message("test message")
+            # Should write the message
+            calls = [str(call) for call in mock_stderr.write.call_args_list]
+            self.assertTrue(any("test message" in call for call in calls))
+
+    @mock.patch.object(progress, "_TTY", False)
+    @mock.patch("sys.stderr")
+    def test_display_message_returns_early_no_tty(self, mock_stderr):
+        """display_message should return early when not TTY."""
+        p = progress.Progress("Test", total=5, delay=False, quiet=False)
+        p.display_message("test message")
+        # Should not write when not TTY
+        mock_stderr.write.assert_not_called()
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_display_message_returns_early_when_quiet(self, mock_stderr):
+        """display_message should return early when quiet."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            p = progress.Progress("Test", total=5, delay=False, quiet=True)
+            p.display_message("test message")
+            mock_stderr.write.assert_not_called()
+
+
+@pytest.mark.unit
+class TestProgressWrite(unittest.TestCase):
+    """Tests for Progress._write() method."""
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_write_prepends_carriage_return(self, mock_stderr):
+        """_write should prepend carriage return to output."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch(
+                "os.get_terminal_size", return_value=mock.Mock(columns=80)
+            ):
+                p = progress.Progress(
+                    "Test", total=5, delay=False, quiet=False, elide=True
+                )
+                p._write("test content")
+                call_args = mock_stderr.write.call_args[0][0]
+                self.assertTrue(call_args.startswith("\r"))
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_write_elides_long_content(self, mock_stderr):
+        """_write should elide content longer than terminal width."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            mock_size = mock.Mock()
+            mock_size.columns = 20
+            with mock.patch("os.get_terminal_size", return_value=mock_size):
+                p = progress.Progress(
+                    "Test", total=5, delay=False, quiet=False, elide=True
+                )
+                p._write("x" * 100)
+                call_args = mock_stderr.write.call_args[0][0]
+                self.assertTrue(len(call_args) <= 21)  # 20 + newline
+                self.assertTrue(call_args.endswith(".."))
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_write_calls_flush(self, mock_stderr):
+        """_write should flush stderr after writing."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch(
+                "os.get_terminal_size", return_value=mock.Mock(columns=80)
+            ):
+                p = progress.Progress(
+                    "Test", total=5, delay=False, quiet=False, elide=True
+                )
+                p._write("test")
+                mock_stderr.flush.assert_called_once()
+
+
+@pytest.mark.unit
+class TestProgressUpdateWithTotal(unittest.TestCase):
+    """Tests for Progress.update() with total set."""
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_update_shows_percentage(self, mock_stderr):
+        """update should show percentage when total is set."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch(
+                "os.get_terminal_size", return_value=mock.Mock(columns=100)
+            ):
+                p = progress.Progress(
+                    "Test", total=10, delay=False, quiet=False, elide=True
+                )
+                p.update(inc=5)
+                call_args = mock_stderr.write.call_args[0][0]
+                self.assertIn("50%", call_args)
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_update_shows_elapsed_time(self, mock_stderr):
+        """update should show elapsed time when show_elapsed is True."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            mock_size = mock.Mock()
+            mock_size.columns = 100
+            with mock.patch("os.get_terminal_size", return_value=mock_size):
+                # Provide enough time values for init and update
+                with mock.patch("time.time", side_effect=[0, 0, 10]):
+                    p = progress.Progress(
+                        "Test",
+                        total=10,
+                        delay=False,
+                        quiet=False,
+                        show_elapsed=True,
+                        elide=True,
+                    )
+                    p.update(inc=5)
+                    call_args = mock_stderr.write.call_args[0][0]
+                    # Should contain time format
+                    self.assertIn("0:", call_args)
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_update_shows_jobs_when_active(self, mock_stderr):
+        """update should show job count when _show_jobs is True."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch(
+                "os.get_terminal_size", return_value=mock.Mock(columns=100)
+            ):
+                p = progress.Progress(
+                    "Test", total=10, delay=False, quiet=False, elide=True
+                )
+                p.start("job1")
+                p.start("job2")
+                p.update(inc=5)
+                call_args = mock_stderr.write.call_args[0][0]
+                self.assertIn("job", call_args)
+
+
+@pytest.mark.unit
+class TestProgressUpdateWithoutTotal(unittest.TestCase):
+    """Tests for Progress.update() without total set."""
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_update_shows_count_without_total(self, mock_stderr):
+        """update should show count when total is 0."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch(
+                "os.get_terminal_size", return_value=mock.Mock(columns=100)
+            ):
+                p = progress.Progress(
+                    "Test", total=0, delay=False, quiet=False, elide=True
+                )
+                p.update(inc=1)
+                p.update(inc=1)
+                call_args = mock_stderr.write.call_args[0][0]
+                self.assertIn("2", call_args)
+
+
+@pytest.mark.unit
+class TestProgressUpdateDelay(unittest.TestCase):
+    """Tests for Progress.update() delay logic."""
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_update_respects_delay(self, mock_stderr):
+        """update should not display until delay passes."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch("time.time", side_effect=[0, 0.3, 0.6]):
+                p = progress.Progress("Test", total=10, delay=True, quiet=False)
+                p.update(inc=1)
+                mock_stderr.write.assert_not_called()
+                p.update(inc=1)
+                mock_stderr.write.assert_called()
+
+    @mock.patch.object(progress, "_TTY", True)
+    @mock.patch("sys.stderr")
+    def test_update_shows_immediately_when_no_delay(self, mock_stderr):
+        """update should display immediately when delay=False."""
+        with mock.patch("progress.IsTraceToStderr", return_value=False):
+            with mock.patch(
+                "os.get_terminal_size", return_value=mock.Mock(columns=100)
+            ):
+                p = progress.Progress(
+                    "Test", total=10, delay=False, quiet=False, elide=True
+                )
+                p.update(inc=1)
+                mock_stderr.write.assert_called()
+
+
+@pytest.mark.unit
+class TestProgressUpdateLoop(unittest.TestCase):
+    """Tests for Progress._update_loop() method."""
+
+    @mock.patch.object(progress, "_TTY", False)
+    def test_update_loop_exits_on_event(self):
+        """_update_loop should exit when _update_event is set."""
+        p = progress.Progress("Test", total=5, delay=False, quiet=True)
+        p._update_event.set()
+        # The loop should exit immediately
+        with mock.patch.object(p, "update") as mock_update:
+            p._update_loop()
+            # Should call update at least once before checking event
+            self.assertGreaterEqual(mock_update.call_count, 1)

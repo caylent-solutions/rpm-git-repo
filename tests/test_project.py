@@ -21,6 +21,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import pytest
 
@@ -1169,3 +1170,1283 @@ class CopyFileLinkFileDataStructureTests(unittest.TestCase):
         lf = project._LinkFile("/worktree", "src.txt", "/topdir", "dest.txt")
         lf.src = "new_src.txt"
         self.assertEqual(lf.src, "new_src.txt")
+
+
+# Additional coverage tests appended below
+
+
+@pytest.mark.unit
+class TestLwriteFunction:
+    """Test the _lwrite function."""
+
+    def test_lwrite_creates_file_with_content(self):
+        """Test that _lwrite creates a file with the specified content."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.txt")
+            content = "test content\nline2"
+            project._lwrite(path, content)
+
+            assert os.path.exists(path)
+            with open(path, "r") as f:
+                assert f.read() == content
+
+    def test_lwrite_uses_unix_line_endings(self):
+        """Test that _lwrite uses Unix line endings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.txt")
+            content = "line1\nline2\n"
+            project._lwrite(path, content)
+
+            # Read in binary mode to check line endings
+            with open(path, "rb") as f:
+                raw_content = f.read()
+            assert b"\r\n" not in raw_content
+            assert b"\n" in raw_content
+
+    def test_lwrite_replaces_existing_file(self):
+        """Test that _lwrite replaces an existing file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.txt")
+            # Create initial file
+            with open(path, "w") as f:
+                f.write("old content")
+
+            # Overwrite with _lwrite
+            new_content = "new content"
+            project._lwrite(path, new_content)
+
+            with open(path, "r") as f:
+                assert f.read() == new_content
+
+    def test_lwrite_cleans_up_lock_on_error(self):
+        """Test that _lwrite removes lock file on error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.txt")
+            lock_path = path + ".lock"
+
+            with mock.patch(
+                "platform_utils.rename", side_effect=OSError("Rename failed")
+            ):
+                with pytest.raises(OSError):
+                    project._lwrite(path, "content")
+
+            # Lock file should be cleaned up
+            assert not os.path.exists(lock_path)
+
+
+@pytest.mark.unit
+class TestSyncNetworkHalfResult:
+    """Test SyncNetworkHalfResult NamedTuple."""
+
+    def test_success_property_true_when_no_error(self):
+        """Test success property returns True when error is None."""
+        result = project.SyncNetworkHalfResult(remote_fetched=True, error=None)
+        assert result.success is True
+
+    def test_success_property_false_when_error_present(self):
+        """Test success property returns False when error is present."""
+        err = Exception("test error")
+        result = project.SyncNetworkHalfResult(remote_fetched=False, error=err)
+        assert result.success is False
+
+    def test_remote_fetched_attribute(self):
+        """Test remote_fetched attribute."""
+        result = project.SyncNetworkHalfResult(remote_fetched=True)
+        assert result.remote_fetched is True
+
+        result2 = project.SyncNetworkHalfResult(remote_fetched=False)
+        assert result2.remote_fetched is False
+
+    def test_error_attribute(self):
+        """Test error attribute."""
+        err = ValueError("test error")
+        result = project.SyncNetworkHalfResult(remote_fetched=True, error=err)
+        assert result.error is err
+
+
+@pytest.mark.unit
+class TestDeleteWorktreeError:
+    """Test DeleteWorktreeError exception class."""
+
+    def test_init_without_aggregate_errors(self):
+        """Test DeleteWorktreeError without aggregate_errors."""
+        err = project.DeleteWorktreeError("Test error")
+        assert str(err) == "Test error"
+        assert err.aggregate_errors == []
+
+    def test_init_with_aggregate_errors(self):
+        """Test DeleteWorktreeError with aggregate_errors."""
+        errors = [ValueError("error1"), IOError("error2")]
+        err = project.DeleteWorktreeError("Test error", aggregate_errors=errors)
+        assert err.aggregate_errors == errors
+
+    def test_init_with_none_aggregate_errors(self):
+        """Test DeleteWorktreeError with None aggregate_errors."""
+        err = project.DeleteWorktreeError("Test error", aggregate_errors=None)
+        assert err.aggregate_errors == []
+
+
+@pytest.mark.unit
+class TestCopyFileClassExtended:
+    """Test _CopyFile class additional scenarios."""
+
+    def test_copyfile_init(self):
+        """Test _CopyFile initialization."""
+        cf = project._CopyFile(
+            "/git/worktree", "src.txt", "/topdir", "dest.txt"
+        )
+        assert cf.git_worktree == "/git/worktree"
+        assert cf.src == "src.txt"
+        assert cf.topdir == "/topdir"
+        assert cf.dest == "dest.txt"
+
+    def test_copy_handles_ioerror(self):
+        """Test _Copy handles IOError gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            cf = project._CopyFile(worktree, "src.txt", topdir, "dest.txt")
+
+            # Mock shutil.copy to raise IOError
+            with mock.patch("shutil.copy", side_effect=IOError("Copy failed")):
+                # Should not raise, just log error
+                cf._Copy()
+
+    def test_copy_creates_dest_directory(self):
+        """Test _Copy creates destination directory if it doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            # Destination in subdirectory that doesn't exist
+            cf = project._CopyFile(
+                worktree, "src.txt", topdir, "subdir/dest.txt"
+            )
+            cf._Copy()
+
+            dest_file = os.path.join(topdir, "subdir", "dest.txt")
+            assert os.path.exists(dest_file)
+            with open(dest_file, "r") as f:
+                assert f.read() == "content"
+
+    def test_copy_raises_error_for_directory_source(self):
+        """Test _Copy raises error when source is a directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source directory
+            src_dir = os.path.join(worktree, "srcdir")
+            os.makedirs(src_dir)
+
+            cf = project._CopyFile(worktree, "srcdir", topdir, "dest.txt")
+
+            with pytest.raises(
+                error.ManifestInvalidPathError,
+                match="copying from directory not supported",
+            ):
+                cf._Copy()
+
+    def test_copy_raises_error_for_directory_dest(self):
+        """Test _Copy raises error when dest is a directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            # Create dest as directory
+            dest_dir = os.path.join(topdir, "destdir")
+            os.makedirs(dest_dir)
+
+            cf = project._CopyFile(worktree, "src.txt", topdir, "destdir")
+
+            with pytest.raises(
+                error.ManifestInvalidPathError,
+                match="copying to directory not allowed",
+            ):
+                cf._Copy()
+
+
+@pytest.mark.unit
+class TestLinkFileClassExtended:
+    """Test _LinkFile class additional scenarios."""
+
+    def test_linkfile_init(self):
+        """Test _LinkFile initialization."""
+        lf = project._LinkFile(
+            "/git/worktree", "src.txt", "/topdir", "dest.txt"
+        )
+        assert lf.git_worktree == "/git/worktree"
+        assert lf.src == "src.txt"
+        assert lf.topdir == "/topdir"
+        assert lf.dest == "dest.txt"
+
+    def test_link_handles_oserror(self):
+        """Test _Link handles OSError gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            lf = project._LinkFile(worktree, "src.txt", topdir, "dest.txt")
+
+            # Mock symlink to raise OSError
+            with mock.patch(
+                "platform_utils.symlink", side_effect=OSError("Link failed")
+            ):
+                # Should not raise, just log error
+                lf._Link()
+
+    def test_link_removes_existing_file_before_linking(self):
+        """Test _Link removes existing file before creating symlink."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            # Create existing dest file
+            dest_file = os.path.join(topdir, "dest.txt")
+            with open(dest_file, "w") as f:
+                f.write("old")
+
+            lf = project._LinkFile(worktree, "src.txt", topdir, "dest.txt")
+            lf._Link()
+
+            # Verify it's now a symlink
+            assert os.path.islink(dest_file)
+
+    def test_link_creates_dest_directory(self):
+        """Test _Link creates destination directory if it doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            # Destination in subdirectory that doesn't exist
+            lf = project._LinkFile(
+                worktree, "src.txt", topdir, "subdir/dest.txt"
+            )
+            lf._Link()
+
+            dest_file = os.path.join(topdir, "subdir", "dest.txt")
+            assert os.path.islink(dest_file)
+
+    def test_link_absolute_dest_creates_parents(self):
+        """Test _Link with absolute dest creates parent directories."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            os.makedirs(worktree)
+
+            # Create source file
+            src_file = os.path.join(worktree, "src.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            # Absolute destination
+            abs_dest = os.path.join(tmpdir, "absolute", "nested", "dest.txt")
+
+            lf = project._LinkFile(worktree, "src.txt", "/unused", abs_dest)
+            lf._Link()
+
+            assert os.path.islink(abs_dest)
+
+    def test_link_absolute_dest_rejects_path_traversal(self):
+        """Test _Link with absolute dest rejects path traversal."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            os.makedirs(worktree)
+
+            # Absolute destination with ..
+            abs_dest = "/tmp/../etc/passwd"
+
+            lf = project._LinkFile(worktree, "src.txt", "/unused", abs_dest)
+
+            with pytest.raises(
+                error.ManifestInvalidPathError,
+                match='".." not allowed in absolute dest',
+            ):
+                lf._Link()
+
+    def test_link_wildcard_source(self):
+        """Test _Link with wildcard source."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create multiple source files
+            for i in range(3):
+                src_file = os.path.join(worktree, f"file{i}.txt")
+                with open(src_file, "w") as f:
+                    f.write(f"content{i}")
+
+            # Destination directory
+            dest_dir = os.path.join(topdir, "destdir")
+            os.makedirs(dest_dir)
+
+            lf = project._LinkFile(worktree, "*.txt", topdir, "destdir")
+            lf._Link()
+
+            # Verify all files are linked
+            for i in range(3):
+                dest_file = os.path.join(dest_dir, f"file{i}.txt")
+                assert os.path.islink(dest_file)
+
+    def test_link_wildcard_dest_not_directory_logs_error(self):
+        """Test _Link with wildcard when dest is not a directory logs error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            worktree = os.path.join(tmpdir, "worktree")
+            topdir = os.path.join(tmpdir, "topdir")
+            os.makedirs(worktree)
+            os.makedirs(topdir)
+
+            # Create source file
+            src_file = os.path.join(worktree, "file.txt")
+            with open(src_file, "w") as f:
+                f.write("content")
+
+            # Create dest as file
+            dest_file = os.path.join(topdir, "destfile")
+            with open(dest_file, "w") as f:
+                f.write("existing")
+
+            lf = project._LinkFile(worktree, "*.txt", topdir, "destfile")
+            lf._Link()  # Should log error but not raise
+
+
+@pytest.mark.unit
+class TestHelperFunctions:
+    """Test helper functions."""
+
+    def test_not_rev(self):
+        """Test not_rev function."""
+        assert project.not_rev("abc123") == "^abc123"
+
+    def test_sq(self):
+        """Test sq function for shell quoting."""
+        assert project.sq("test") == "'test'"
+        assert project.sq("test's") == "'test'''s'"
+
+
+@pytest.mark.unit
+class TestAnnotationClass:
+    """Test Annotation class."""
+
+    def test_annotation_init(self):
+        """Test Annotation initialization."""
+        ann = project.Annotation("name", "value", True)
+        assert ann.name == "name"
+        assert ann.value == "value"
+        assert ann.keep is True
+
+    def test_annotation_equality(self):
+        """Test Annotation equality."""
+        ann1 = project.Annotation("name", "value", True)
+        ann2 = project.Annotation("name", "value", True)
+        ann3 = project.Annotation("name", "value", False)
+
+        assert ann1 == ann2
+        assert ann1 != ann3
+        assert ann1 != "not an annotation"
+
+    def test_annotation_less_than_by_name(self):
+        """Test Annotation comparison by name."""
+        ann1 = project.Annotation("aaa", "value", True)
+        ann2 = project.Annotation("bbb", "value", True)
+
+        assert ann1 < ann2
+        assert not ann2 < ann1
+
+    def test_annotation_less_than_by_value(self):
+        """Test Annotation comparison by value when names are equal."""
+        ann1 = project.Annotation("name", "aaa", True)
+        ann2 = project.Annotation("name", "bbb", True)
+
+        assert ann1 < ann2
+
+    def test_annotation_less_than_by_keep(self):
+        """Test Annotation comparison by keep when name and value are equal."""
+        ann1 = project.Annotation("name", "value", False)
+        ann2 = project.Annotation("name", "value", True)
+
+        assert ann1 < ann2
+
+    def test_annotation_less_than_invalid_type(self):
+        """Test Annotation comparison with invalid type."""
+        ann = project.Annotation("name", "value", True)
+
+        with pytest.raises(
+            ValueError, match="comparison is not between two Annotation objects"
+        ):
+            ann < "not an annotation"
+
+
+@pytest.mark.unit
+class TestProjectProperties:
+    """Test Project class properties and basic methods."""
+
+    def test_shareable_dirs_with_alternates(self):
+        """Test shareable_dirs property when using alternates."""
+        with mock.patch.object(project, "_ALTERNATES", True):
+            proj = mock.Mock(spec=project.Project)
+            proj.UseAlternates = True
+
+            # Call the property directly on the class
+            result = project.Project.shareable_dirs.fget(proj)
+            assert result == ["hooks", "rr-cache"]
+
+    def test_shareable_dirs_without_alternates(self):
+        """Test shareable_dirs property when not using alternates."""
+        proj = mock.Mock(spec=project.Project)
+        proj.UseAlternates = False
+
+        result = project.Project.shareable_dirs.fget(proj)
+        assert result == ["hooks", "objects", "rr-cache"]
+
+    def test_use_alternates_property_with_alternates_env(self):
+        """Test UseAlternates property with REPO_USE_ALTERNATES=1."""
+        with mock.patch.object(project, "_ALTERNATES", True):
+            proj = mock.Mock(spec=project.Project)
+            proj.manifest = mock.Mock()
+            proj.manifest.is_multimanifest = False
+
+            result = project.Project.UseAlternates.fget(proj)
+            assert result is True
+
+    def test_use_alternates_property_with_multimanifest(self):
+        """Test UseAlternates property with multimanifest."""
+        with mock.patch.object(project, "_ALTERNATES", False):
+            proj = mock.Mock(spec=project.Project)
+            proj.manifest = mock.Mock()
+            proj.manifest.is_multimanifest = True
+
+            result = project.Project.UseAlternates.fget(proj)
+            assert result is True
+
+    def test_derived_property(self):
+        """Test Derived property."""
+        proj = mock.Mock(spec=project.Project)
+        proj.is_derived = True
+
+        result = project.Project.Derived.fget(proj)
+        assert result is True
+
+    def test_exists_property_true(self):
+        """Test Exists property when directories exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gitdir = os.path.join(tmpdir, ".git")
+            objdir = os.path.join(tmpdir, "objects")
+            os.makedirs(gitdir)
+            os.makedirs(objdir)
+
+            proj = mock.Mock(spec=project.Project)
+            proj.gitdir = gitdir
+            proj.objdir = objdir
+
+            result = project.Project.Exists.fget(proj)
+            assert result is True
+
+    def test_exists_property_false(self):
+        """Test Exists property when directories don't exist."""
+        proj = mock.Mock(spec=project.Project)
+        proj.gitdir = "/nonexistent/gitdir"
+        proj.objdir = "/nonexistent/objdir"
+
+        result = project.Project.Exists.fget(proj)
+        assert result is False
+
+
+@pytest.mark.unit
+class TestProjectCurrentBranch:
+    """Test Project.CurrentBranch property."""
+
+    def test_current_branch_returns_branch_name(self):
+        """Test CurrentBranch returns branch name without refs/heads/ prefix."""
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetHead.return_value = "refs/heads/main"
+
+        result = project.Project.CurrentBranch.fget(proj)
+        assert result == "main"
+
+    def test_current_branch_detached_head(self):
+        """Test CurrentBranch returns None for detached HEAD."""
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetHead.return_value = "abc123def456"
+
+        result = project.Project.CurrentBranch.fget(proj)
+        assert result is None
+
+    def test_current_branch_no_manifest_exception(self):
+        """Test CurrentBranch returns None when NoManifestException is raised."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetHead.side_effect = error.NoManifestException(
+            "/path", "reason"
+        )
+
+        result = project.Project.CurrentBranch.fget(proj)
+        assert result is None
+
+
+@pytest.mark.unit
+class TestProjectIsDirty:
+    """Test Project.IsDirty method."""
+
+    def test_is_dirty_with_cached_changes(self):
+        """Test IsDirty returns True when there are cached changes."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.side_effect = [
+            {"file.txt": mock.Mock()},  # diff-index has changes
+            {},  # diff-files no changes
+        ]
+        proj.UntrackedFiles = mock.Mock(return_value=[])
+
+        result = project.Project.IsDirty(proj, consider_untracked=True)
+        assert result is True
+
+    def test_is_dirty_with_file_changes(self):
+        """Test IsDirty returns True when there are file changes."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.side_effect = [
+            {},  # diff-index no changes
+            {"file.txt": mock.Mock()},  # diff-files has changes
+        ]
+        proj.UntrackedFiles = mock.Mock(return_value=[])
+
+        result = project.Project.IsDirty(proj, consider_untracked=True)
+        assert result is True
+
+    def test_is_dirty_with_untracked_files(self):
+        """Test IsDirty returns True when there are untracked files."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.return_value = {}
+        proj.UntrackedFiles = mock.Mock(return_value=["untracked.txt"])
+
+        result = project.Project.IsDirty(proj, consider_untracked=True)
+        assert result is True
+
+    def test_is_dirty_ignore_untracked(self):
+        """Test IsDirty ignores untracked files when consider_untracked=False."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.return_value = {}
+        proj.UntrackedFiles = mock.Mock(return_value=["untracked.txt"])
+
+        result = project.Project.IsDirty(proj, consider_untracked=False)
+        assert result is False
+
+    def test_is_dirty_clean(self):
+        """Test IsDirty returns False when working directory is clean."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.return_value = {}
+        proj.UntrackedFiles = mock.Mock(return_value=[])
+
+        result = project.Project.IsDirty(proj, consider_untracked=True)
+        assert result is False
+
+
+@pytest.mark.unit
+class TestProjectHasChanges:
+    """Test Project.HasChanges method."""
+
+    def test_has_changes_true(self):
+        """Test HasChanges returns True when there are uncommitted changes."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.UncommitedFiles = mock.Mock(return_value=["file.txt"])
+
+        result = project.Project.HasChanges(proj)
+        assert result is True
+        proj.UncommitedFiles.assert_called_once_with(get_all=False)
+
+    def test_has_changes_false(self):
+        """Test HasChanges returns False when there are no uncommitted changes."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.UncommitedFiles = mock.Mock(return_value=[])
+
+        result = project.Project.HasChanges(proj)
+        assert result is False
+
+
+@pytest.mark.unit
+class TestProjectGetRemoteAndBranch:
+    """Test Project.GetRemote and GetBranch methods."""
+
+    def test_get_remote_default(self):
+        """Test GetRemote returns default remote."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.remote = mock.Mock()
+        proj.remote.name = "origin"
+        proj.config = mock.Mock()
+        proj.config.GetRemote.return_value = mock.Mock()
+
+        project.Project.GetRemote(proj, name=None)
+        proj.config.GetRemote.assert_called_once_with("origin")
+
+    def test_get_remote_named(self):
+        """Test GetRemote returns named remote."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.remote = mock.Mock()
+        proj.config = mock.Mock()
+        proj.config.GetRemote.return_value = mock.Mock()
+
+        project.Project.GetRemote(proj, name="upstream")
+        proj.config.GetRemote.assert_called_once_with("upstream")
+
+    def test_get_branch(self):
+        """Test GetBranch returns branch configuration."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.config = mock.Mock()
+        proj.config.GetBranch.return_value = mock.Mock()
+
+        project.Project.GetBranch(proj, "main")
+        proj.config.GetBranch.assert_called_once_with("main")
+
+
+@pytest.mark.unit
+class TestProjectRebaseAndCherryPickState:
+    """Test Project rebase and cherry-pick state methods."""
+
+    def test_is_rebase_in_progress_rebase_apply(self):
+        """Test IsRebaseInProgress detects rebase-apply."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetDotgitPath.side_effect = lambda x: f"/git/.git/{x}"
+        proj.worktree = "/worktree"
+
+        with mock.patch("os.path.exists") as mock_exists:
+            mock_exists.side_effect = lambda p: p == "/git/.git/rebase-apply"
+            result = project.Project.IsRebaseInProgress(proj)
+            assert result is True
+
+    def test_is_rebase_in_progress_rebase_merge(self):
+        """Test IsRebaseInProgress detects rebase-merge."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetDotgitPath.side_effect = lambda x: f"/git/.git/{x}"
+        proj.worktree = "/worktree"
+
+        with mock.patch("os.path.exists") as mock_exists:
+            mock_exists.side_effect = lambda p: p == "/git/.git/rebase-merge"
+            result = project.Project.IsRebaseInProgress(proj)
+            assert result is True
+
+    def test_is_rebase_in_progress_dotest(self):
+        """Test IsRebaseInProgress detects .dotest."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetDotgitPath.side_effect = lambda x: f"/git/.git/{x}"
+        proj.worktree = "/worktree"
+
+        with mock.patch("os.path.exists") as mock_exists:
+            mock_exists.side_effect = lambda p: p == "/worktree/.dotest"
+            result = project.Project.IsRebaseInProgress(proj)
+            assert result is True
+
+    def test_is_rebase_in_progress_false(self):
+        """Test IsRebaseInProgress returns False when no rebase in progress."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetDotgitPath.side_effect = lambda x: f"/git/.git/{x}"
+        proj.worktree = "/worktree"
+
+        with mock.patch("os.path.exists", return_value=False):
+            result = project.Project.IsRebaseInProgress(proj)
+            assert result is False
+
+    def test_is_cherry_pick_in_progress_true(self):
+        """Test IsCherryPickInProgress returns True."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetDotgitPath.return_value = "/git/.git/CHERRY_PICK_HEAD"
+
+        with mock.patch("os.path.exists", return_value=True):
+            result = project.Project.IsCherryPickInProgress(proj)
+            assert result is True
+
+    def test_is_cherry_pick_in_progress_false(self):
+        """Test IsCherryPickInProgress returns False."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.GetDotgitPath.return_value = "/git/.git/CHERRY_PICK_HEAD"
+
+        with mock.patch("os.path.exists", return_value=False):
+            result = project.Project.IsCherryPickInProgress(proj)
+            assert result is False
+
+
+@pytest.mark.unit
+class TestProjectUserIdentity:
+    """Test Project user identity methods."""
+
+    def test_load_user_identity_valid_format(self):
+        """Test _LoadUserIdentity with valid format."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj._userident_name = None
+        proj._userident_email = None
+        proj.bare_git = mock.Mock()
+        proj.bare_git.var.return_value = (
+            "John Doe <john@example.com> 1234567890 +0000"
+        )
+
+        project.Project._LoadUserIdentity(proj)
+        assert proj._userident_name == "John Doe"
+        assert proj._userident_email == "john@example.com"
+
+    def test_load_user_identity_invalid_format(self):
+        """Test _LoadUserIdentity with invalid format."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj._userident_name = None
+        proj._userident_email = None
+        proj.bare_git = mock.Mock()
+        proj.bare_git.var.return_value = "invalid format"
+
+        project.Project._LoadUserIdentity(proj)
+        assert proj._userident_name == ""
+        assert proj._userident_email == ""
+
+
+@pytest.mark.unit
+class TestProjectBranches:
+    """Test Project.GetBranches method."""
+
+    def test_get_branches(self):
+        """Test GetBranches returns all branches with metadata."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.CurrentBranch = "main"
+        proj._allrefs = {
+            "refs/heads/main": "abc123",
+            "refs/heads/feature": "def456",
+            "refs/published/main": "abc123",
+        }
+
+        # Create mock branch objects that will be returned consistently
+        branches = {}
+
+        def get_branch_side_effect(name):
+            if name not in branches:
+                branches[name] = mock.Mock()
+            return branches[name]
+
+        proj.GetBranch = mock.Mock(side_effect=get_branch_side_effect)
+
+        result = project.Project.GetBranches(proj)
+
+        assert "main" in result
+        assert "feature" in result
+        # Verify attributes were set by GetBranches
+        assert result["main"].current is True
+        assert result["feature"].current is False
+        assert result["main"].revision == "abc123"
+        assert result["feature"].revision == "def456"
+        assert result["main"].published == "abc123"
+        assert result["feature"].published is None
+
+
+@pytest.mark.unit
+class TestProjectMatchesGroups:
+    """Test Project.MatchesGroups method."""
+
+    def test_matches_groups_all(self):
+        """Test MatchesGroups with 'all' group."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.groups = []
+        proj.manifest = mock.Mock()
+        proj.manifest.default_groups = ["default"]
+
+        result = project.Project.MatchesGroups(proj, ["all"])
+        assert result is True
+
+    def test_matches_groups_default(self):
+        """Test MatchesGroups with 'default' group."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.groups = []
+        proj.manifest = mock.Mock()
+        proj.manifest.default_groups = ["default"]
+
+        result = project.Project.MatchesGroups(proj, None)
+        assert result is True
+
+    def test_matches_groups_specific(self):
+        """Test MatchesGroups with specific group."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.groups = ["group1"]
+        proj.manifest = mock.Mock()
+        proj.manifest.default_groups = ["default"]
+
+        result = project.Project.MatchesGroups(proj, ["group1"])
+        assert result is True
+
+    def test_matches_groups_negation(self):
+        """Test MatchesGroups with negated group."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.groups = ["group1"]
+        proj.manifest = mock.Mock()
+        proj.manifest.default_groups = ["default"]
+
+        result = project.Project.MatchesGroups(proj, ["-group1"])
+        assert result is False
+
+    def test_matches_groups_notdefault(self):
+        """Test MatchesGroups with 'notdefault' group."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.groups = ["notdefault"]
+        proj.manifest = mock.Mock()
+        proj.manifest.default_groups = ["default"]
+
+        result = project.Project.MatchesGroups(proj, ["default"])
+        assert result is False
+
+
+@pytest.mark.unit
+class TestProjectUncommittedFiles:
+    """Test Project.UncommitedFiles method."""
+
+    def test_uncommited_files_with_rebase(self):
+        """Test UncommitedFiles includes rebase status."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.return_value = {}
+        proj.IsRebaseInProgress = mock.Mock(return_value=True)
+        proj.UntrackedFiles = mock.Mock(return_value=[])
+
+        result = project.Project.UncommitedFiles(proj, get_all=True)
+        assert "rebase in progress" in result
+
+    def test_uncommited_files_get_all_false_early_return(self):
+        """Test UncommitedFiles with get_all=False returns early."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.work_git = mock.Mock()
+        proj.work_git.update_index = mock.Mock()
+        proj.work_git.DiffZ.return_value = {"file.txt": mock.Mock()}
+        proj.IsRebaseInProgress = mock.Mock(return_value=False)
+        proj.UntrackedFiles = mock.Mock(return_value=[])
+
+        result = project.Project.UncommitedFiles(proj, get_all=False)
+        assert len(result) > 0
+        # Should not call UntrackedFiles since it returns early
+        proj.UntrackedFiles.assert_not_called()
+
+
+@pytest.mark.unit
+class TestProjectRelPath:
+    """Test Project.RelPath method."""
+
+    def test_rel_path_local(self):
+        """Test RelPath with local=True."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.relpath = "project/path"
+        proj.manifest = mock.Mock()
+        proj.manifest.path_prefix = "prefix"
+
+        result = project.Project.RelPath(proj, local=True)
+        assert result == "project/path"
+
+    def test_rel_path_non_local(self):
+        """Test RelPath with local=False."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.relpath = "project/path"
+        proj.manifest = mock.Mock()
+        proj.manifest.path_prefix = "prefix"
+
+        with mock.patch("os.path.join", return_value="prefix/project/path"):
+            result = project.Project.RelPath(proj, local=False)
+            assert result == "prefix/project/path"
+
+
+@pytest.mark.unit
+class TestProjectSetRevision:
+    """Test Project.SetRevision method."""
+
+    def test_set_revision_with_explicit_id(self):
+        """Test SetRevision with explicit revisionId parameter."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.revisionExpr = None
+        proj.revisionId = None
+
+        with mock.patch("git_config.IsId", return_value=False):
+            project.Project.SetRevision(proj, "main", revisionId="abc123")
+
+        assert proj.revisionExpr == "main"
+        assert proj.revisionId == "abc123"
+
+    def test_set_revision_expr_not_id(self):
+        """Test SetRevision when revisionExpr is not an ID."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.revisionExpr = None
+        proj.revisionId = None
+
+        with mock.patch("git_config.IsId", return_value=False):
+            project.Project.SetRevision(proj, "main", revisionId=None)
+
+        assert proj.revisionExpr == "main"
+        assert proj.revisionId is None
+
+
+@pytest.mark.unit
+class TestProjectUpdatePaths:
+    """Test Project.UpdatePaths method."""
+
+    def test_update_paths(self):
+        """Test UpdatePaths updates all paths."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.manifest = mock.Mock()
+        proj.manifest.globalConfig = mock.Mock()
+
+        with (
+            mock.patch("git_config.GitConfig.ForRepository"),
+            mock.patch.object(project.Project, "_GitGetByExec"),
+            mock.patch("project.GitRefs"),
+        ):
+            project.Project.UpdatePaths(
+                proj, "rel/path", "/worktree", "/gitdir", "/objdir"
+            )
+
+            assert proj.gitdir == "/gitdir"
+            assert proj.objdir == "/objdir"
+            assert proj.worktree == "/worktree"
+            assert proj.relpath == "rel/path"
+
+    def test_update_paths_no_worktree(self):
+        """Test UpdatePaths with None worktree."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.manifest = mock.Mock()
+        proj.manifest.globalConfig = mock.Mock()
+
+        with (
+            mock.patch("git_config.GitConfig.ForRepository"),
+            mock.patch.object(project.Project, "_GitGetByExec"),
+            mock.patch("project.GitRefs"),
+        ):
+            project.Project.UpdatePaths(
+                proj, "rel/path", None, "/gitdir", "/objdir"
+            )
+
+            assert proj.worktree is None
+            assert proj.work_git is None
+
+
+@pytest.mark.unit
+class TestRemoteSpecClass:
+    """Test RemoteSpec class."""
+
+    def test_remote_spec_init(self):
+        """Test RemoteSpec initialization."""
+        spec = project.RemoteSpec(
+            name="origin",
+            url="https://example.com/repo.git",
+            pushUrl="https://example.com/push.git",
+            review="https://review.example.com",
+            revision="main",
+            orig_name="upstream",
+            fetchUrl="https://example.com/fetch.git",
+        )
+
+        assert spec.name == "origin"
+        assert spec.url == "https://example.com/repo.git"
+        assert spec.pushUrl == "https://example.com/push.git"
+        assert spec.review == "https://review.example.com"
+        assert spec.revision == "main"
+        assert spec.orig_name == "upstream"
+        assert spec.fetchUrl == "https://example.com/fetch.git"
+
+
+@pytest.mark.unit
+class TestDownloadedChangeClass:
+    """Test DownloadedChange class."""
+
+    def test_downloaded_change_init(self):
+        """Test DownloadedChange initialization."""
+        from unittest import mock
+
+        proj = mock.Mock()
+        dc = project.DownloadedChange(proj, "base", "12345", "1", "commit123")
+
+        assert dc.project is proj
+        assert dc.base == "base"
+        assert dc.change_id == "12345"
+        assert dc.ps_id == "1"
+        assert dc.commit == "commit123"
+
+    def test_downloaded_change_commits_property(self):
+        """Test DownloadedChange commits property."""
+        from unittest import mock
+
+        proj = mock.Mock()
+        proj.bare_git = mock.Mock()
+        proj.bare_git.rev_list.return_value = ["abc123 commit message"]
+
+        dc = project.DownloadedChange(proj, "base", "12345", "1", "commit123")
+
+        commits = dc.commits
+        assert commits == ["abc123 commit message"]
+
+        # Second call should use cache
+        proj.bare_git.rev_list.reset_mock()
+        dc.commits
+        proj.bare_git.rev_list.assert_not_called()
+
+
+@pytest.mark.unit
+class TestStatusColoringClass:
+    """Test StatusColoring class."""
+
+    def test_status_coloring_init(self):
+        """Test StatusColoring initialization."""
+        from unittest import mock
+
+        config = mock.Mock()
+        with mock.patch.object(
+            project.StatusColoring, "printer", return_value=mock.Mock()
+        ):
+            project.StatusColoring(config)
+            # Just verify it doesn't raise
+
+
+@pytest.mark.unit
+class TestDiffColoringClass:
+    """Test DiffColoring class."""
+
+    def test_diff_coloring_init(self):
+        """Test DiffColoring initialization."""
+        from unittest import mock
+
+        config = mock.Mock()
+        with mock.patch.object(
+            project.DiffColoring, "printer", return_value=mock.Mock()
+        ):
+            project.DiffColoring(config)
+            # Just verify it doesn't raise
+
+
+@pytest.mark.unit
+class TestSafeExpandPath:
+    """Test _SafeExpandPath function."""
+
+    def test_safe_expand_path_basic(self):
+        """Test _SafeExpandPath with basic path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = project._SafeExpandPath(tmpdir, "subdir/file.txt")
+            expected = os.path.join(tmpdir, "subdir", "file.txt")
+            assert result == expected
+
+    def test_safe_expand_path_rejects_dot_dot(self):
+        """Test _SafeExpandPath rejects .. in path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(
+                error.ManifestInvalidPathError,
+                match='".." not allowed in paths',
+            ):
+                project._SafeExpandPath(tmpdir, "../etc/passwd")
+
+    def test_safe_expand_path_rejects_dot(self):
+        """Test _SafeExpandPath rejects . in path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(
+                error.ManifestInvalidPathError, match='"." not allowed in paths'
+            ):
+                project._SafeExpandPath(tmpdir, "./file.txt")
+
+    def test_safe_expand_path_rejects_symlink_traversal(self):
+        """Test _SafeExpandPath rejects symlink traversal."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a symlink
+            linkdir = os.path.join(tmpdir, "link")
+            targetdir = os.path.join(tmpdir, "target")
+            os.makedirs(targetdir)
+            os.symlink(targetdir, linkdir)
+
+            with pytest.raises(
+                error.ManifestInvalidPathError,
+                match="traversing symlinks not allow",
+            ):
+                project._SafeExpandPath(tmpdir, "link/file.txt")
+
+    def test_safe_expand_path_skipfinal(self):
+        """Test _SafeExpandPath with skipfinal=True."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create directory structure
+            subdir = os.path.join(tmpdir, "subdir")
+            os.makedirs(subdir)
+
+            result = project._SafeExpandPath(
+                tmpdir, "subdir/file.txt", skipfinal=True
+            )
+            expected = os.path.join(tmpdir, "subdir", "file.txt")
+            assert result == expected
+
+
+@pytest.mark.unit
+class TestProjectHooksFunction:
+    """Test _ProjectHooks function."""
+
+    def test_project_hooks_caches_result(self):
+        """Test _ProjectHooks caches the result."""
+        from unittest import mock
+
+        # Reset the cache
+        project._project_hook_list = None
+
+        with (
+            mock.patch("os.path.realpath", return_value="/repo/hooks"),
+            mock.patch("os.path.abspath", return_value="/repo/hooks"),
+            mock.patch("os.path.dirname", return_value="/repo"),
+            mock.patch(
+                "platform_utils.listdir", return_value=["hook1", "hook2"]
+            ),
+        ):
+            result1 = project._ProjectHooks()
+            result2 = project._ProjectHooks()
+
+            # Both calls should return the same cached list
+            assert result1 is result2
+
+
+@pytest.mark.unit
+class TestProjectSetRevisionId:
+    """Test Project.SetRevisionId method."""
+
+    def test_set_revision_id_sets_upstream(self):
+        """Test SetRevisionId sets upstream."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.revisionExpr = "main"
+        proj.revisionId = None
+        proj.upstream = None
+
+        project.Project.SetRevisionId(proj, "abc123")
+
+        assert proj.revisionId == "abc123"
+        assert proj.upstream == "main"
+
+    def test_set_revision_id_no_expr(self):
+        """Test SetRevisionId with no revisionExpr."""
+        from unittest import mock
+
+        proj = mock.Mock(spec=project.Project)
+        proj.revisionExpr = None
+        proj.revisionId = None
+
+        project.Project.SetRevisionId(proj, "abc123")
+
+        assert proj.revisionId == "abc123"

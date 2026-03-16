@@ -14,8 +14,11 @@
 
 """Unittests for the subcmds/init.py module."""
 
+import optparse
 import unittest
 from unittest import mock
+
+import pytest
 
 from subcmds import init
 
@@ -157,3 +160,230 @@ class InitExecuteRepoRevGuard(unittest.TestCase):
             cmd.Execute(opt, [])
 
             wrapper_instance.check_repo_rev.assert_not_called()
+
+
+@pytest.mark.unit
+class TestInitOptions:
+    """Test Init command options."""
+
+    def test_options_setup(self):
+        """Verify Init command option parser is set up correctly."""
+        cmd = init.Init()
+        p = optparse.OptionParser()
+        cmd._Options(p)
+        opts, args = p.parse_args([])
+
+        # Verify default option values from multi-manifest group
+        assert opts.outer_manifest is True
+        assert opts.this_manifest_only is None
+
+    def test_options_no_outer_manifest(self):
+        """Test parsing --no-outer-manifest option."""
+        cmd = init.Init()
+        opts, args = cmd.OptionParser.parse_args(["--no-outer-manifest"])
+        assert opts.outer_manifest is False
+
+    def test_options_this_manifest_only(self):
+        """Test parsing --this-manifest-only option."""
+        cmd = init.Init()
+        opts, args = cmd.OptionParser.parse_args(["--this-manifest-only"])
+        assert opts.this_manifest_only is True
+
+    def test_options_all_manifests(self):
+        """Test parsing --all-manifests option."""
+        cmd = init.Init()
+        opts, args = cmd.OptionParser.parse_args(["--all-manifests"])
+        assert opts.this_manifest_only is False
+
+    def test_registered_environment_options(self):
+        """Test _RegisteredEnvironmentOptions returns correct mapping."""
+        cmd = init.Init()
+        env_opts = cmd._RegisteredEnvironmentOptions()
+
+        assert env_opts == {
+            "REPO_MANIFEST_URL": "manifest_url",
+            "REPO_MIRROR_LOCATION": "reference",
+            "REPO_GIT_LFS": "git_lfs",
+        }
+
+
+@pytest.mark.unit
+class TestInitSyncManifest:
+    """Test Init command _SyncManifest method."""
+
+    def test_sync_manifest_sets_clone_depth(self):
+        """Test _SyncManifest sets manifestProject clone_depth."""
+        cmd = init.Init()
+        cmd.manifest = mock.MagicMock()
+        cmd.manifest.manifestProject.Sync.return_value = True
+
+        opt = mock.MagicMock()
+        opt.manifest_depth = 5
+        opt.manifest_upstream_branch = "main"
+
+        cmd._SyncManifest(opt)
+
+        assert cmd.manifest.manifestProject.clone_depth == 5
+        assert cmd.manifest.manifestProject.upstream == "main"
+
+    def test_sync_manifest_calls_sync_with_options(self):
+        """Test _SyncManifest calls manifestProject.Sync with correct options."""
+        cmd = init.Init()
+        cmd.manifest = mock.MagicMock()
+        cmd.manifest.manifestProject.Sync.return_value = True
+
+        opt = mock.MagicMock()
+        opt.manifest_depth = 1
+        opt.manifest_upstream_branch = "develop"
+        opt.manifest_url = "https://example.com/manifest.git"
+        opt.manifest_branch = "stable"
+        opt.standalone_manifest = False
+
+        cmd._SyncManifest(opt)
+
+        cmd.manifest.manifestProject.Sync.assert_called_once()
+        call_kwargs = cmd.manifest.manifestProject.Sync.call_args[1]
+        assert call_kwargs["manifest_url"] == "https://example.com/manifest.git"
+        assert call_kwargs["manifest_branch"] == "stable"
+        assert call_kwargs["standalone_manifest"] is False
+
+    def test_sync_manifest_raises_on_failure(self):
+        """Test _SyncManifest raises UpdateManifestError on failure."""
+        from error import UpdateManifestError
+
+        cmd = init.Init()
+        cmd.manifest = mock.MagicMock()
+        cmd.manifest.manifestProject.Sync.return_value = False
+
+        opt = mock.MagicMock()
+        opt.manifest_depth = 1
+        opt.manifest_upstream_branch = "main"
+        opt.manifest_name = "default.xml"
+
+        with pytest.raises(UpdateManifestError):
+            cmd._SyncManifest(opt)
+
+
+@pytest.mark.unit
+class TestInitUserConfiguration:
+    """Test Init command user configuration methods."""
+
+    def test_prompt_accepts_default(self):
+        """Test _Prompt returns default value when user presses enter."""
+        cmd = init.Init()
+        with mock.patch("sys.stdin.readline", return_value="\n"):
+            result = cmd._Prompt("Name", "Default Name")
+            assert result == "Default Name"
+
+    def test_prompt_accepts_new_value(self):
+        """Test _Prompt returns new value when user enters text."""
+        cmd = init.Init()
+        with mock.patch("sys.stdin.readline", return_value="New Name\n"):
+            result = cmd._Prompt("Name", "Default Name")
+            assert result == "New Name"
+
+    def test_should_configure_user_missing_config(self):
+        """Test _ShouldConfigureUser returns True when config missing."""
+        cmd = init.Init()
+        cmd.client = mock.MagicMock()
+        cmd.manifest = mock.MagicMock()
+
+        cmd.client.globalConfig.Has.return_value = False
+        cmd.manifest.manifestProject.config.Has.return_value = False
+
+        opt = mock.MagicMock()
+        opt.quiet = True
+
+        result = cmd._ShouldConfigureUser(opt, existing_checkout=False)
+        assert result is True
+
+    def test_should_configure_user_has_global_config(self):
+        """Test _ShouldConfigureUser copies from global config."""
+        cmd = init.Init()
+        cmd.client = mock.MagicMock()
+        cmd.manifest = mock.MagicMock()
+
+        cmd.manifest.manifestProject.config.Has.return_value = False
+        cmd.client.globalConfig.Has.return_value = True
+        cmd.client.globalConfig.GetString.side_effect = [
+            "John Doe",
+            "john@example.com",
+        ]
+
+        opt = mock.MagicMock()
+        opt.quiet = True
+
+        result = cmd._ShouldConfigureUser(opt, existing_checkout=False)
+        assert result is False
+
+        cmd.manifest.manifestProject.config.SetString.assert_any_call(
+            "user.name", "John Doe"
+        )
+        cmd.manifest.manifestProject.config.SetString.assert_any_call(
+            "user.email", "john@example.com"
+        )
+
+    def test_configure_user_sets_name_and_email(self):
+        """Test _ConfigureUser sets user name and email."""
+        cmd = init.Init()
+        cmd.manifest = mock.MagicMock()
+        cmd.manifest.manifestProject.UserName = "Old Name"
+        cmd.manifest.manifestProject.UserEmail = "old@example.com"
+
+        opt = mock.MagicMock()
+        opt.quiet = True
+
+        with mock.patch.object(cmd, "_Prompt") as mock_prompt:
+            mock_prompt.side_effect = ["New Name", "new@example.com"]
+            with mock.patch("sys.stdin.readline", return_value="yes\n"):
+                cmd._ConfigureUser(opt)
+
+        cmd.manifest.manifestProject.config.SetString.assert_any_call(
+            "user.name", "New Name"
+        )
+        cmd.manifest.manifestProject.config.SetString.assert_any_call(
+            "user.email", "new@example.com"
+        )
+
+    def test_has_color_set_returns_true(self):
+        """Test _HasColorSet returns True when color config exists."""
+        cmd = init.Init()
+        gc = mock.MagicMock()
+        gc.Has.return_value = True
+
+        result = cmd._HasColorSet(gc)
+        assert result is True
+
+    def test_has_color_set_returns_false(self):
+        """Test _HasColorSet returns False when no color config."""
+        cmd = init.Init()
+        gc = mock.MagicMock()
+        gc.Has.return_value = False
+
+        result = cmd._HasColorSet(gc)
+        assert result is False
+
+
+@pytest.mark.unit
+class TestInitCommand:
+    """Test Init command properties."""
+
+    def test_common_flag(self):
+        """Test Init command is marked as COMMON."""
+        assert init.Init.COMMON is True
+
+    def test_multi_manifest_support(self):
+        """Test Init command supports multi-manifest."""
+        assert init.Init.MULTI_MANIFEST_SUPPORT is True
+
+    def test_help_summary(self):
+        """Test Init command has help summary."""
+        assert init.Init.helpSummary is not None
+        assert len(init.Init.helpSummary) > 0
+
+    def test_common_options_disabled(self):
+        """Test _CommonOptions is disabled for Init."""
+        cmd = init.Init()
+        # _CommonOptions should do nothing (disabled for wrapper reuse)
+        result = cmd._CommonOptions(None)
+        assert result is None
