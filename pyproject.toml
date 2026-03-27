@@ -46,7 +46,8 @@ only-include = [
     "project.py", "repo", "repo_logging.py", "repo_trace.py", "requirements.json",
     "ssh.py", "version_constraints.py", "wrapper.py",
     "subcmds/",
-    "hooks/"
+    "hooks/",
+    "git_ssh"
 ]
 
 [tool.ruff]

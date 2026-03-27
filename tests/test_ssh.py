@@ -15,6 +15,7 @@
 """Unittests for the ssh.py module."""
 
 import multiprocessing
+import os
 import subprocess
 import unittest
 from unittest import mock
@@ -80,6 +81,25 @@ class SshTests(unittest.TestCase):
             # New ssh version uses hash.
             with mock.patch("ssh.version", return_value=(6, 7)):
                 self.assertTrue(proxy.sock().endswith("%C"))
+
+
+@pytest.mark.unit
+class ProxyPathTests(unittest.TestCase):
+    """Tests that the git_ssh proxy script is present and executable."""
+
+    def test_proxy_path_exists(self):
+        """git_ssh must exist alongside ssh.py for GIT_SSH to work."""
+        self.assertTrue(
+            os.path.isfile(ssh.PROXY_PATH),
+            f"git_ssh proxy script missing: {ssh.PROXY_PATH}",
+        )
+
+    def test_proxy_path_is_executable(self):
+        """git_ssh must be executable so git can invoke it via GIT_SSH."""
+        self.assertTrue(
+            os.access(ssh.PROXY_PATH, os.X_OK),
+            f"git_ssh proxy script is not executable: {ssh.PROXY_PATH}",
+        )
 
 
 @pytest.mark.unit
