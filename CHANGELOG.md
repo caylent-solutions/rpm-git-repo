@@ -2,6 +2,25 @@
 
 
 
+## v1.0.1 (2026-03-30)
+
+### Fix
+
+* fix: add caylent-platform-bot and merge commit checks to CI skip conditions
+
+fix: add caylent-platform-bot and merge commit checks to CI skip conditions ([`2af7d04`](https://github.com/caylent-solutions/rpm-git-repo/commit/2af7d049019b5fb197b29b3b1a3b1abce3023229))
+
+* fix: add caylent-platform-bot and merge commit checks to CI skip conditions
+
+The release bot merge was still triggering CI workflows because:
+- The merge actor is caylent-platform-bot[bot], not rpm-platform-bot[bot]
+- GitHub merge commit messages use &#34;Merge pull request #N from org/release-X.Y.Z&#34;,
+  not the inner &#34;chore(release):&#34; commit message
+
+Add caylent-platform-bot[bot] to actor and PR author checks across all three
+workflow files, and add /release- merge commit message detection for push events. ([`41f67ec`](https://github.com/caylent-solutions/rpm-git-repo/commit/41f67ecf18b14785dd7b400156ebcd3ea1e5bc16))
+
+
 ## v1.0.0 (2026-03-30)
 
 ### Breaking
@@ -26,6 +45,16 @@ BREAKING CHANGE: CI pipeline conditions have been updated to skip
 validation on release bot activity. This changes the release pipeline
 behavior and requires the release branch naming convention (release-*)
 and commit message convention (chore(release):) to be maintained. ([`3619e21`](https://github.com/caylent-solutions/rpm-git-repo/commit/3619e214d440d739d3d12aa3443ab2cebd8a47e8))
+
+### Chore
+
+* chore(release): 1.0.0 ([`116d380`](https://github.com/caylent-solutions/rpm-git-repo/commit/116d380e79920d1675f0bc07d70443dc9930f320))
+
+### Unknown
+
+* Merge pull request #8 from caylent-solutions/release-1.0.0
+
+Release 1.0.0 ([`79290e0`](https://github.com/caylent-solutions/rpm-git-repo/commit/79290e0f45bcb767cb891e9fbf53004b34a553bb))
 
 
 ## v0.1.1 (2026-03-30)
