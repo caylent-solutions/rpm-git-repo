@@ -10,11 +10,16 @@ jobs:
   codeql:
     if: >-
       github.actor != 'rpm-platform-bot[bot]'
+      && github.actor != 'caylent-platform-bot[bot]'
       && (github.event_name != 'pull_request' || (
         github.event.pull_request.user.login != 'rpm-platform-bot[bot]'
+        && github.event.pull_request.user.login != 'caylent-platform-bot[bot]'
         && !startsWith(github.head_ref, 'release-')
       ))
-      && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):'))
+      && (github.event_name != 'push' || (
+        !startsWith(github.event.head_commit.message, 'chore(release):')
+        && !contains(github.event.head_commit.message, '/release-')
+      ))
     name: CodeQL Analysis
     runs-on: ubuntu-24.04
     permissions:

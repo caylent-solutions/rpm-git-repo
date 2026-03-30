@@ -14,7 +14,9 @@ jobs:
     name: Validate Main
     if: >-
       github.actor != 'rpm-platform-bot[bot]'
+      && github.actor != 'caylent-platform-bot[bot]'
       && !startsWith(github.event.head_commit.message, 'chore(release):')
+      && !contains(github.event.head_commit.message, '/release-')
     runs-on: ubuntu-24.04
 
     steps:
@@ -111,7 +113,9 @@ jobs:
     name: CodeQL Analysis
     if: >-
       github.actor != 'rpm-platform-bot[bot]'
+      && github.actor != 'caylent-platform-bot[bot]'
       && !startsWith(github.event.head_commit.message, 'chore(release):')
+      && !contains(github.event.head_commit.message, '/release-')
     runs-on: ubuntu-24.04
     permissions:
       security-events: write
@@ -136,7 +140,9 @@ jobs:
     name: Manual QA Approval
     if: >-
       github.actor != 'rpm-platform-bot[bot]'
+      && github.actor != 'caylent-platform-bot[bot]'
       && !startsWith(github.event.head_commit.message, 'chore(release):')
+      && !contains(github.event.head_commit.message, '/release-')
     needs: [validate, codeql]
     runs-on: ubuntu-24.04
     environment:
