@@ -12,7 +12,9 @@ concurrency:
 jobs:
   validate:
     name: Validate Main
-    if: ${{ github.actor != 'rpm-platform-bot[bot]' }}
+    if: >-
+      github.actor != 'rpm-platform-bot[bot]'
+      && !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-24.04
 
     steps:
@@ -107,7 +109,9 @@ jobs:
 
   codeql:
     name: CodeQL Analysis
-    if: ${{ github.actor != 'rpm-platform-bot[bot]' }}
+    if: >-
+      github.actor != 'rpm-platform-bot[bot]'
+      && !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-24.04
     permissions:
       security-events: write
@@ -130,7 +134,9 @@ jobs:
 
   manual-approval:
     name: Manual QA Approval
-    if: ${{ github.actor != 'rpm-platform-bot[bot]' }}
+    if: >-
+      github.actor != 'rpm-platform-bot[bot]'
+      && !startsWith(github.event.head_commit.message, 'chore(release):')
     needs: [validate, codeql]
     runs-on: ubuntu-24.04
     environment:
