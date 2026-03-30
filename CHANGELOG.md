@@ -2,9 +2,30 @@
 
 
 
+## v0.1.1 (2026-03-30)
+
+### Fix
+
+* fix: include git_ssh proxy script in wheel package
+
+git_ssh is referenced by ssh.py as the GIT_SSH proxy but was missing
+from only-include in pyproject.toml, causing repo sync to fail when a
+url.insteadOf git config rewrites HTTPS remotes to SSH.
+
+Fixes caylent-solutions/rpm-git-repo#4 ([`0cad309`](https://github.com/caylent-solutions/rpm-git-repo/commit/0cad309b684793137c9a9301b918963bb5772029))
+
+### Unknown
+
+* Merge pull request #5 from pabdavis/fix/git-ssh-missing-from-wheel
+
+fix: include git_ssh proxy script in wheel package ([`c08dd84`](https://github.com/caylent-solutions/rpm-git-repo/commit/c08dd842fa8d2db3a43b26d9304b7dfde0227b36))
+
+
 ## v0.1.0 (2026-03-16)
 
 ### Chore
+
+* chore(release): 0.1.0 ([`b9a1c0c`](https://github.com/caylent-solutions/rpm-git-repo/commit/b9a1c0c9d70d6a8664596d0ffc8b204beab043ca))
 
 * chore: remove python entry from .tool-versions ([`e3495d0`](https://github.com/caylent-solutions/rpm-git-repo/commit/e3495d08645fcce1bba4d0508d51f4794a01c148))
 
@@ -123,6 +144,10 @@ Update tests to assert all required args are injected and user args
 follow the -- sentinel. ([`3e9c68e`](https://github.com/caylent-solutions/rpm-git-repo/commit/3e9c68eda0ad7fe5bf2e54c6fe1fc6d2f5501f78))
 
 ### Unknown
+
+* Merge pull request #3 from caylent-solutions/release-0.1.0
+
+Release 0.1.0 ([`40a4c77`](https://github.com/caylent-solutions/rpm-git-repo/commit/40a4c77eb15b8225f5a3c664eebe774023e39712))
 
 * Merge pull request #1 from caylent-solutions/feat/initial-rpm-git-repo
 
