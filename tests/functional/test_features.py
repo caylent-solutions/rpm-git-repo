@@ -230,10 +230,18 @@ class TestVersionOutput:
 
     def test_version_matches_pyproject(self):
         """__version__ in main.py should match pyproject.toml."""
+        import tomllib
+        from pathlib import Path
+
         import main
 
+        pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            pyproject = tomllib.load(f)
+        expected_version = pyproject["project"]["version"]
+
         assert hasattr(main, "__version__")
-        assert main.__version__ == "0.1.0"
+        assert main.__version__ == expected_version
 
 
 @pytest.mark.functional
