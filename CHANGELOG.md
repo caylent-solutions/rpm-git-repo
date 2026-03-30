@@ -2,7 +2,37 @@
 
 
 
+## v1.0.0 (2026-03-30)
+
+### Breaking
+
+* feat!: skip CI pipelines for release bot PRs and merges
+
+feat!: skip CI pipelines for release bot PRs and merges ([`48026a6`](https://github.com/caylent-solutions/rpm-git-repo/commit/48026a64ae09f897496b8bad43606ccc292fb247))
+
+* feat!: skip CI pipelines for release bot PRs and merges
+
+- Add PR author and branch name checks to pr-validation.yml to skip
+  release PRs created by rpm-platform-bot
+- Add commit message checks to main-validation.yml to skip validation,
+  CodeQL, and manual-approval jobs on release merge commits
+- Add dual-event conditions to codeql-analysis.yml for both push and
+  PR triggers
+- Fix hardcoded version assertion in test_version_matches_pyproject to
+  read version dynamically from pyproject.toml
+- Clean up claude settings files
+
+BREAKING CHANGE: CI pipeline conditions have been updated to skip
+validation on release bot activity. This changes the release pipeline
+behavior and requires the release branch naming convention (release-*)
+and commit message convention (chore(release):) to be maintained. ([`3619e21`](https://github.com/caylent-solutions/rpm-git-repo/commit/3619e214d440d739d3d12aa3443ab2cebd8a47e8))
+
+
 ## v0.1.1 (2026-03-30)
+
+### Chore
+
+* chore(release): 0.1.1 ([`cb718ad`](https://github.com/caylent-solutions/rpm-git-repo/commit/cb718aded08dab75f579e14d2323520f2e43004c))
 
 ### Fix
 
@@ -15,6 +45,10 @@ url.insteadOf git config rewrites HTTPS remotes to SSH.
 Fixes caylent-solutions/rpm-git-repo#4 ([`0cad309`](https://github.com/caylent-solutions/rpm-git-repo/commit/0cad309b684793137c9a9301b918963bb5772029))
 
 ### Unknown
+
+* Merge pull request #6 from caylent-solutions/release-0.1.1
+
+Release 0.1.1 ([`7fa9888`](https://github.com/caylent-solutions/rpm-git-repo/commit/7fa9888d5b8b5c25c73c47d2fa24ec825d4b5ce0))
 
 * Merge pull request #5 from pabdavis/fix/git-ssh-missing-from-wheel
 
