@@ -9,7 +9,9 @@ jobs:
     name: Validate PR
     if: >-
       github.actor != 'rpm-platform-bot[bot]'
+      && github.actor != 'caylent-platform-bot[bot]'
       && github.event.pull_request.user.login != 'rpm-platform-bot[bot]'
+      && github.event.pull_request.user.login != 'caylent-platform-bot[bot]'
       && !startsWith(github.head_ref, 'release-')
     runs-on: ubuntu-24.04
 
