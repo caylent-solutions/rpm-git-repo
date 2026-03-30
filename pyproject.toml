@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rpm-git-repo"
-version = "1.0.0"
+version = "1.0.1"
 description = "RPM Git Repo — multi-repository management tool for Git"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
