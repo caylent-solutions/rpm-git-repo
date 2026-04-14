@@ -1265,58 +1265,62 @@ class TestProjectVersionConstraints:
             proj = project.Project(**defaults)
         return proj
 
-    def test_get_revision_id_version_constraint_no_refs(self):
-        """Test GetRevisionId with version constraint but no refs."""
-        proj = self._make_project(revisionExpr=">=1.0.0")
+    def test_resolve_version_constraint_ls_remote_fails(self):
+        """_ResolveVersionConstraint raises when ls-remote fails."""
+        proj = self._make_project(
+            revisionExpr="refs/tags/dev/python/quality-agent/>=1.0.0"
+        )
 
-        with mock.patch(
-            "version_constraints.is_version_constraint", return_value=True
-        ):
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.MagicMock(
+                returncode=1, stdout="", stderr="error"
+            )
             with pytest.raises(
-                ManifestInvalidRevisionError, match="no refs available"
+                ManifestInvalidRevisionError,
+                match="failed to list remote tags",
             ):
-                proj.GetRevisionId(all_refs=None)
+                proj._ResolveVersionConstraint()
 
-    def test_get_revision_id_version_constraint_not_found(self):
-        """Test GetRevisionId with version constraint not satisfied."""
-        proj = self._make_project(revisionExpr=">=2.0.0")
+    def test_resolve_version_constraint_no_matching_tags(self):
+        """_ResolveVersionConstraint raises when no tags match."""
+        proj = self._make_project(
+            revisionExpr="refs/tags/dev/python/quality-agent/>=99.0.0"
+        )
 
-        all_refs = {
-            "refs/tags/v1.0.0": "sha1",
-            "refs/tags/v1.5.0": "sha2",
-        }
+        ls_output = (
+            "0000000000000000000000000000000000000000\t"
+            "refs/tags/dev/python/quality-agent/1.0.0\n"
+            "0000000000000000000000000000000000000001\t"
+            "refs/tags/dev/python/quality-agent/1.5.0"
+        )
 
-        with mock.patch(
-            "version_constraints.is_version_constraint", return_value=True
-        ):
-            with mock.patch(
-                "version_constraints.resolve_version_constraint",
-                return_value="refs/tags/v3.0.0",
-            ):
-                with pytest.raises(
-                    ManifestInvalidRevisionError, match="not found"
-                ):
-                    proj.GetRevisionId(all_refs)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.MagicMock(
+                returncode=0, stdout=ls_output, stderr=""
+            )
+            with pytest.raises(ManifestInvalidRevisionError):
+                proj._ResolveVersionConstraint()
 
-    def test_get_revision_id_version_constraint_resolved(self):
-        """Test GetRevisionId with version constraint successfully resolved."""
-        proj = self._make_project(revisionExpr=">=1.0.0")
+    def test_resolve_version_constraint_resolved(self):
+        """_ResolveVersionConstraint mutates revisionExpr to resolved tag."""
+        proj = self._make_project(
+            revisionExpr="refs/tags/dev/python/quality-agent/>=1.0.0"
+        )
 
-        all_refs = {
-            "refs/tags/v1.0.0": "sha1",
-            "refs/tags/v1.5.0": "sha2",
-        }
+        ls_output = (
+            "0000000000000000000000000000000000000000\t"
+            "refs/tags/dev/python/quality-agent/1.0.0\n"
+            "0000000000000000000000000000000000000001\t"
+            "refs/tags/dev/python/quality-agent/1.5.0"
+        )
 
-        with mock.patch(
-            "version_constraints.is_version_constraint", return_value=True
-        ):
-            with mock.patch(
-                "version_constraints.resolve_version_constraint",
-                return_value="refs/tags/v1.5.0",
-            ):
-                result = proj.GetRevisionId(all_refs)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.MagicMock(
+                returncode=0, stdout=ls_output, stderr=""
+            )
+            proj._ResolveVersionConstraint()
 
-        assert result == "sha2"
+        assert proj.revisionExpr == ("refs/tags/dev/python/quality-agent/1.5.0")
 
 
 @pytest.mark.unit

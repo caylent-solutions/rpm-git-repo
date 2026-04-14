@@ -272,8 +272,8 @@ class _Repo:
             return 1
 
         git_trace2_event_log = EventLog()
-        run = (
-            lambda: self._RunLong(name, gopts, argv, git_trace2_event_log) or 0
+        run = lambda: (
+            self._RunLong(name, gopts, argv, git_trace2_event_log) or 0
         )
         with Trace(
             "starting new command: %s [sid=%s]",

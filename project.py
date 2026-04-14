@@ -1337,6 +1337,12 @@ class Project:
         """Perform only the network IO portion of the sync process.
         Local working directory/branch state is not affected.
         """
+        # Pre-resolve PEP 440 version constraints before any git operations.
+        # Constraints like refs/tags/path/~=1.0.0 are not valid git refs.
+        # Resolve against remote tags via git ls-remote, then replace
+        # revisionExpr with the resolved exact tag for all downstream ops.
+        self._ResolveVersionConstraint()
+
         if archive and not isinstance(self, MetaProject):
             if self.remote.url.startswith(("http://", "https://")):
                 msg_template = (
@@ -1570,30 +1576,55 @@ class Project:
                 f"revision {self.revisionExpr} in {self.name} not found"
             )
 
+    def _ResolveVersionConstraint(self):
+        """Resolve a PEP 440 version constraint in revisionExpr.
+
+        If revisionExpr is a PEP 440 constraint (e.g.,
+        refs/tags/path/~=1.0.0), resolves it against remote tags via
+        git ls-remote and replaces revisionExpr with the resolved
+        exact tag ref.
+
+        Does nothing if revisionExpr is not a constraint.
+
+        Raises:
+            ManifestInvalidRevisionError: If the constraint cannot be
+                resolved (ls-remote fails or no matching tags).
+        """
+        if self.revisionExpr is None:
+            return
+        if not version_constraints.is_version_constraint(self.revisionExpr):
+            return
+
+        remote_url = self.remote.url
+        ls_result = subprocess.run(
+            ["git", "ls-remote", "--tags", remote_url],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if ls_result.returncode != 0:
+            raise ManifestInvalidRevisionError(
+                "revision %s in %s not found: "
+                "failed to list remote tags from %s"
+                % (self.revisionExpr, self.name, remote_url)
+            )
+        available_tags = []
+        for line in ls_result.stdout.strip().splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) == 2:
+                available_tags.append(parts[1])
+        self.revisionExpr = version_constraints.resolve_version_constraint(
+            self.revisionExpr, available_tags
+        )
+
     def GetRevisionId(self, all_refs=None):
         if self.revisionId:
             return self.revisionId
 
-        # PEP 440 version constraint integration (spec 17.2).
-        # Detect constraint syntax and resolve to a concrete tag
-        # before the normal ref-lookup flow.
-        if version_constraints.is_version_constraint(self.revisionExpr):
-            if all_refs is None:
-                raise ManifestInvalidRevisionError(
-                    f"revision {self.revisionExpr} in {self.name} "
-                    "not found: no refs available"
-                )
-            available_tags = list(all_refs.keys())
-            resolved_tag = version_constraints.resolve_version_constraint(
-                self.revisionExpr, available_tags
-            )
-            # The resolved tag is a full ref (e.g. refs/tags/...),
-            # so look it up directly in all_refs.
-            if resolved_tag not in all_refs:
-                raise ManifestInvalidRevisionError(
-                    f"revision {self.revisionExpr} in {self.name} not found"
-                )
-            return all_refs[resolved_tag]
+        # If revisionExpr is a PEP 440 constraint, resolve it first.
+        # After this call, revisionExpr is an exact tag ref that the
+        # normal lookup flow below can handle.
+        self._ResolveVersionConstraint()
 
         rem = self.GetRemote()
         rev = rem.ToLocal(self.revisionExpr)
