@@ -349,6 +349,38 @@ been extensively tested.  If not supplied the revision given by
 the remote element is used if applicable, else the default
 element is used.
 
+PEP 440 version constraints are also supported as the last path
+component. The constraint is resolved against remote tags via
+`git ls-remote` at sync time, selecting the highest matching
+version. Supported operators: `~=`, `>=`, `<=`, `>`, `<`, `==`,
+`!=`, `*` (wildcard). Examples:
+
+    refs/tags/my-pkg/~=1.2.0          (>=1.2.0, <1.3.0)
+    refs/tags/my-pkg/>=1.0.0,<2.0.0   (range)
+    refs/tags/my-pkg/*                 (latest)
+    refs/tags/ns/path/~=0.3.0         (namespaced)
+
+**XML escaping:** The `<` character is reserved in XML and must
+be escaped as `&lt;` inside attribute values. Other characters
+that require escaping in XML attributes:
+
+| Character | Escape     | Example in revision attribute |
+|-----------|------------|-------------------------------|
+| `<`       | `&lt;`     | `>=1.0.0,&lt;2.0.0`          |
+| `>`       | `&gt;`     | (optional, `>` is valid in attributes but `&gt;` also works) |
+| `&`       | `&amp;`    | (required if `&` appears in a value) |
+| `"`       | `&quot;`   | (required inside `"` delimited attributes) |
+| `'`       | `&apos;`   | (required inside `'` delimited attributes) |
+
+Example with range constraint:
+
+```xml
+<project name="my-package"
+         path=".packages/my-package"
+         remote="origin"
+         revision="refs/tags/my-package/>=1.0.0,&lt;2.0.0" />
+```
+
 Attribute `dest-branch`: Name of a Git branch (e.g. `main`).
 When using `repo upload`, changes will be submitted for code
 review on this branch. If unspecified both here and in the
