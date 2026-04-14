@@ -2,7 +2,43 @@
 
 
 
+## v1.1.0 (2026-04-14)
+
+### Feature
+
+* feat: resolve PEP 440 version constraints in manifest XML project revisions
+
+feat: resolve PEP 440 version constraints in manifest XML project revisions ([`3229932`](https://github.com/caylent-solutions/rpm-git-repo/commit/32299327b1af69236eedb6e5f34e8de25fdd3256))
+
+* feat: resolve PEP 440 version constraints in manifest XML project revisions
+
+Manifest XML &lt;project revision&gt; attributes now support PEP 440 version
+constraints (e.g., refs/tags/path/~=0.2.0, refs/tags/path/&gt;=1.0.0,&lt;2.0.0).
+
+Previously, constraints were only supported in .kanon files where the Kanon
+CLI pre-resolved them. The repo tool passed constraint strings directly to
+git as ref names, which failed because constraints are not valid git refs.
+
+The fix adds _ResolveVersionConstraint() to the Project class, which:
+1. Detects PEP 440 constraints via version_constraints.is_version_constraint()
+2. Resolves against remote tags via git ls-remote --tags
+3. Replaces revisionExpr with the resolved exact tag ref
+
+Called from both Sync_NetworkHalf (before any git operations) and
+GetRevisionId (fallback for direct calls without prior sync).
+
+Supported constraint operators: ~=, &gt;=, &lt;=, &gt;, &lt;, ==, !=, * (wildcard)
+Range constraints: &gt;=1.0.0,&lt;2.0.0
+Prefixed constraints: refs/tags/namespace/path/~=1.0.0
+
+Also fixes pre-existing main.py formatting issue. ([`3c8dc5b`](https://github.com/caylent-solutions/rpm-git-repo/commit/3c8dc5b0a03fa6077547039cae2e70dc567b96b0))
+
+
 ## v1.0.1 (2026-03-30)
+
+### Chore
+
+* chore(release): 1.0.1 ([`e2c6203`](https://github.com/caylent-solutions/rpm-git-repo/commit/e2c62036ae1daae6831b2c6d4a4abefdaf9fcb2b))
 
 ### Fix
 
@@ -19,6 +55,12 @@ The release bot merge was still triggering CI workflows because:
 
 Add caylent-platform-bot[bot] to actor and PR author checks across all three
 workflow files, and add /release- merge commit message detection for push events. ([`41f67ec`](https://github.com/caylent-solutions/rpm-git-repo/commit/41f67ecf18b14785dd7b400156ebcd3ea1e5bc16))
+
+### Unknown
+
+* Merge pull request #10 from caylent-solutions/release-1.0.1
+
+Release 1.0.1 ([`97b74f9`](https://github.com/caylent-solutions/rpm-git-repo/commit/97b74f955edfbbf8f185dc6242881a5418417c11))
 
 
 ## v1.0.0 (2026-03-30)
